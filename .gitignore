@@ -1,0 +1,13 @@
+# Claude Code local-only settings (machine-specific permissions)
+.claude/settings.local.json
+
+# Node / build (for when the app is scaffolded)
+node_modules/
+dist/
+.env
+.env.local
+
+# Playwright / eyes.mjs output
+.eyes/
+test-results/
+playwright-report/
