@@ -23,6 +23,8 @@ import { AmazonConnectPage } from './pages/AmazonConnectPage'
 import { AmazonOrdersPage } from './pages/AmazonOrdersPage'
 import { EbayConnectPage } from './pages/EbayConnectPage'
 import { EbayOrdersPage } from './pages/EbayOrdersPage'
+import { WalmartConnectPage } from './pages/WalmartConnectPage'
+import { WalmartOrdersPage } from './pages/WalmartOrdersPage'
 import { ProviderOrdersPage } from './pages/ProviderOrdersPage'
 
 function App() {
@@ -50,6 +52,8 @@ function App() {
               <Route path="/brand/amazon/orders" element={<AmazonOrdersPage />} />
               <Route path="/brand/ebay" element={<EbayConnectPage />} />
               <Route path="/brand/ebay/orders" element={<EbayOrdersPage />} />
+              <Route path="/brand/walmart" element={<WalmartConnectPage />} />
+              <Route path="/brand/walmart/orders" element={<WalmartOrdersPage />} />
             </Route>
 
             <Route element={<RequireRole role="provider" />}>

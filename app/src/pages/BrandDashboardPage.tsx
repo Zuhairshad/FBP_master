@@ -43,6 +43,12 @@ export function BrandDashboardPage() {
         <Link to="/brand/ebay/orders" className={NAV_LINK_CLASS}>
           View eBay orders
         </Link>
+        <Link to="/brand/walmart" className={NAV_LINK_CLASS}>
+          Connect Walmart
+        </Link>
+        <Link to="/brand/walmart/orders" className={NAV_LINK_CLASS}>
+          View Walmart orders
+        </Link>
       </div>
     </DashboardShell>
   )

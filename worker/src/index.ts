@@ -29,10 +29,19 @@ import {
   handleSync as handleEbaySync,
 } from './ebay/handlers'
 import type { EbayWorkerEnv } from './ebay/env'
+import {
+  handleConnect as handleWalmartConnect,
+  handleStatus as handleWalmartStatus,
+  handleSync as handleWalmartSync,
+} from './walmart/handlers'
+import type { WalmartWorkerEnv } from './walmart/env'
 
-export interface Env extends ShopifyWorkerEnv, TiktokWorkerEnv, AmazonWorkerEnv, EbayWorkerEnv {
-  // Further per-marketplace bindings (Phase 9) land here as they're wired up.
-}
+export interface Env
+  extends ShopifyWorkerEnv,
+    TiktokWorkerEnv,
+    AmazonWorkerEnv,
+    EbayWorkerEnv,
+    WalmartWorkerEnv {}
 
 export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
@@ -117,6 +126,18 @@ export default {
 
     if (method === 'POST' && url.pathname === '/webhooks/ebay/account-deletion') {
       return handleEbayDeletionNotification(request)
+    }
+
+    if (method === 'GET' && url.pathname === '/walmart/status') {
+      return handleWalmartStatus(request, env)
+    }
+
+    if (method === 'POST' && url.pathname === '/walmart/connect') {
+      return handleWalmartConnect(request, env)
+    }
+
+    if (method === 'POST' && url.pathname === '/walmart/sync') {
+      return handleWalmartSync(request, env)
     }
 
     return new Response('Not found', { status: 404 })
