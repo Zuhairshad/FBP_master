@@ -1,5 +1,5 @@
 import { fetchOrders } from './client'
-import { resolveMasterSku, touchLastSyncedAt, upsertPlatformOrder } from './supabaseAdmin'
+import { listTiktokTokens, resolveMasterSku, touchLastSyncedAt, upsertPlatformOrder } from './supabaseAdmin'
 import type { TiktokEnv } from './supabaseAdmin'
 import type { PlatformOrderInsert, TiktokOrder } from './types'
 
@@ -66,4 +66,40 @@ export async function ingestTiktokWebhookOrder(
 ): Promise<void> {
   const resolved = await resolveOrder(env, params.brandId, params.order, fetchImpl)
   await upsertPlatformOrder(env, resolved, fetchImpl)
+}
+
+/** Phase 10: syncs every brand with a connected TikTok Shop, same per-brand
+ * recipe as handleSync in handlers.ts — see
+ * worker/src/shopify/sync.ts's syncAllShopifyBrands for the per-brand
+ * failure-isolation rationale, which applies identically here. */
+export async function syncAllTiktokBrands(
+  env: TiktokEnv,
+  params: { appKey: string; appSecret: string },
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ successCount: number; failureCount: number; errors: string[] }> {
+  const tokens = await listTiktokTokens(env, fetchImpl)
+  const errors: string[] = []
+  let successCount = 0
+
+  for (const token of tokens) {
+    try {
+      await syncTiktokOrders(
+        env,
+        {
+          brandId: token.brand_id,
+          shopId: token.shop_id,
+          accessToken: token.access_token,
+          appKey: params.appKey,
+          appSecret: params.appSecret,
+          updateTimeGe: token.last_synced_at ? Math.floor(new Date(token.last_synced_at).getTime() / 1000) : undefined,
+        },
+        fetchImpl,
+      )
+      successCount++
+    } catch (err) {
+      errors.push(`brand ${token.brand_id}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  return { successCount, failureCount: errors.length, errors }
 }

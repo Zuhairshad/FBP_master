@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ingestTiktokWebhookOrder, syncTiktokOrders } from './sync'
+import { ingestTiktokWebhookOrder, syncAllTiktokBrands, syncTiktokOrders } from './sync'
 
 const env = { SUPABASE_URL: 'https://project.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'service-role-key' }
 
@@ -95,6 +95,59 @@ describe('syncTiktokOrders', () => {
       fetchImpl,
     )
     expect(result).toEqual({ syncedCount: 0 })
+  })
+})
+
+describe('syncAllTiktokBrands', () => {
+  const appParams = { appKey: 'ak', appSecret: 'as' }
+
+  it('syncs every connected brand and tallies successes', async () => {
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)
+      if (url.pathname === '/rest/v1/tiktok_tokens' && (init?.method ?? 'GET') === 'GET') {
+        return Response.json([
+          { id: 't1', brand_id: 'brand-1', shop_id: 'shop-1', access_token: 'act_1', refresh_token: 'rft_1', access_token_expires_at: '2026-01-01T00:00:00Z', last_synced_at: null },
+          { id: 't2', brand_id: 'brand-2', shop_id: 'shop-2', access_token: 'act_2', refresh_token: 'rft_2', access_token_expires_at: '2026-01-01T00:00:00Z', last_synced_at: null },
+        ])
+      }
+      if (url.hostname === 'open-api.tiktokglobalshop.com') {
+        return Response.json({ code: 0, message: 'success', data: { orders: [] } })
+      }
+      return Response.json({})
+    }) as typeof fetch
+
+    const result = await syncAllTiktokBrands(env, appParams, fetchImpl)
+    expect(result).toEqual({ successCount: 2, failureCount: 0, errors: [] })
+  })
+
+  it("isolates one brand's failure so the rest still sync", async () => {
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)
+      if (url.pathname === '/rest/v1/tiktok_tokens' && (init?.method ?? 'GET') === 'GET') {
+        return Response.json([
+          { id: 't1', brand_id: 'broken-brand', shop_id: 'shop-broken', access_token: 'act_bad', refresh_token: 'rft_bad', access_token_expires_at: '2026-01-01T00:00:00Z', last_synced_at: null },
+          { id: 't2', brand_id: 'brand-2', shop_id: 'shop-2', access_token: 'act_2', refresh_token: 'rft_2', access_token_expires_at: '2026-01-01T00:00:00Z', last_synced_at: null },
+        ])
+      }
+      if (url.hostname === 'open-api.tiktokglobalshop.com') {
+        if (url.searchParams.get('shop_id') === 'shop-broken') {
+          return Response.json({ code: 10003, message: 'invalid shop_id' })
+        }
+        return Response.json({ code: 0, message: 'success', data: { orders: [] } })
+      }
+      return Response.json({})
+    }) as typeof fetch
+
+    const result = await syncAllTiktokBrands(env, appParams, fetchImpl)
+    expect(result.successCount).toBe(1)
+    expect(result.failureCount).toBe(1)
+    expect(result.errors[0]).toContain('broken-brand')
+  })
+
+  it('returns zero counts when no brand is connected', async () => {
+    const fetchImpl = (async () => Response.json([])) as typeof fetch
+    const result = await syncAllTiktokBrands(env, appParams, fetchImpl)
+    expect(result).toEqual({ successCount: 0, failureCount: 0, errors: [] })
   })
 })
 

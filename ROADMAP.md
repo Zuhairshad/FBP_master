@@ -447,17 +447,38 @@ order.
 
 ---
 
-## Phase 10 — Order Sync Automation `[ ]`
+## Phase 10 — Order Sync Automation `[~]`
 
 **Goal:** replace "manual sync button only" with real background sync across all
 connected platforms.
 
-- [ ] `wrangler.toml` `[triggers] crons` + scheduled handler in the Worker
-- [ ] Per-platform sync orchestration, idempotent upsert (no duplicate orders on rerun)
-- [ ] `sync_logs` table (run started/finished, per-platform success/failure counts)
-- [ ] Worker tests for the scheduled handler (`@cloudflare/vitest-pool-workers` covers
-      `scheduled()`, not just `fetch()`)
-- [ ] Floor + Foundation rung (touches the shared sync path for every platform) + build
+- [x] `wrangler.toml` `[triggers] crons = ["*/15 * * * *"]` + `scheduled()` handler in
+      the Worker (`worker/src/index.ts` dispatches to `worker/src/scheduledSync.ts`,
+      same as `fetch()` dispatches to each platform's `handlers.ts`). 15-minute cadence
+      is an ASSUMPTION (no stated sync-freshness SLA), trivially adjustable.
+- [x] Per-platform sync orchestration: each platform's `sync.ts` gained
+      `syncAllXBrands()`, looping every connected brand through the exact same
+      per-brand recipe `handleSync` already used, with per-brand failure isolation
+      (one broken brand doesn't abort the platform's run). Idempotent upsert was
+      **already true** from Phase 5 onward — every `upsertPlatformOrder` upserts on
+      `(platform, platform_order_id)` — nothing new needed there.
+- [x] `sync_logs` table (`20260710221040_create_sync_logs.sql`) — one row per platform
+      per run, `success_count`/`failure_count`/`error_message`. Zero-RLS-policy,
+      service-role only, same shape as every `*_tokens` table (ASSUMPTION: stricter
+      than strictly necessary since nothing here is secret; Phase 12 decides its real
+      read path). RLS test written (`sync_logs_rls.test.sql`), **not yet executed
+      against a live Postgres** (same sandbox DB blocker as every phase so far).
+- [x] Worker tests for the scheduled handler: `scheduledSync.test.ts` (orchestration
+      logic, injected `fetchImpl`) + `index.test.ts` (the real exported `scheduled()`
+      via `createScheduledController`/`createExecutionContext`/
+      `waitOnExecutionContext` — `@cloudflare/vitest-pool-workers` exercising
+      `scheduled()`, not just `fetch()`, per this line's original ask). 34 new worker
+      tests (263 total).
+- [x] Floor + Foundation rung (touches the shared sync path for every platform) + build
+      + `wrangler deploy --dry-run` — all green. No frontend change this phase.
+- [ ] UNVERIFIED: the cron actually firing and syncing real connected brands on a live
+      Cloudflare deployment — needs a real `wrangler deploy` + live credentials for at
+      least one platform, neither available in this sandbox.
 
 ---
 

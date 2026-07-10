@@ -132,3 +132,19 @@ export async function upsertPlatformOrder(
     throw new Error(`Failed to upsert platform_orders row ${order.platform_order_id}: ${error.message}`)
   }
 }
+
+/** Every brand with a connected Walmart seller account — same rationale as
+ * worker/src/shopify/supabaseAdmin.ts's listShopifyTokens (Phase 10). */
+export async function listWalmartTokens(
+  env: WalmartEnv,
+  fetchImpl: typeof fetch = fetch,
+): Promise<WalmartTokenRow[]> {
+  const { data, error } = await adminClient(env, fetchImpl)
+    .from('walmart_tokens')
+    .select('id, brand_id, client_id, client_secret, access_token, access_token_expires_at, last_synced_at')
+
+  if (error) {
+    throw new Error(`Failed to list walmart_tokens: ${error.message}`)
+  }
+  return (data ?? []) as WalmartTokenRow[]
+}

@@ -1,5 +1,5 @@
 import { fetchOrders } from './client'
-import { resolveMasterSku, touchLastSyncedAt, upsertPlatformOrder } from './supabaseAdmin'
+import { listShopifyTokens, resolveMasterSku, touchLastSyncedAt, upsertPlatformOrder } from './supabaseAdmin'
 import type { ShopifyEnv } from './supabaseAdmin'
 import type { PlatformOrderInsert, ShopifyOrder } from './types'
 
@@ -61,4 +61,37 @@ export async function ingestShopifyWebhookOrder(
 ): Promise<void> {
   const resolved = await resolveOrder(env, params.brandId, params.order, fetchImpl)
   await upsertPlatformOrder(env, resolved, fetchImpl)
+}
+
+/** Phase 10: syncs every brand with a connected Shopify store, same
+ * per-brand recipe as handleSync in handlers.ts. A single brand's failure
+ * (e.g. a revoked access token) is caught and tallied, not thrown — one
+ * broken brand must not stop the rest of the platform's scheduled run. */
+export async function syncAllShopifyBrands(
+  env: ShopifyEnv,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ successCount: number; failureCount: number; errors: string[] }> {
+  const tokens = await listShopifyTokens(env, fetchImpl)
+  const errors: string[] = []
+  let successCount = 0
+
+  for (const token of tokens) {
+    try {
+      await syncShopifyOrders(
+        env,
+        {
+          brandId: token.brand_id,
+          shopDomain: token.shop_domain,
+          accessToken: token.access_token,
+          updatedAtMin: token.last_synced_at ?? undefined,
+        },
+        fetchImpl,
+      )
+      successCount++
+    } catch (err) {
+      errors.push(`brand ${token.brand_id}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  return { successCount, failureCount: errors.length, errors }
 }

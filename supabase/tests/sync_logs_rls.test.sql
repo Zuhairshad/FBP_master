@@ -1,0 +1,76 @@
+-- RLS policy tests for public.sync_logs. Same zero-policy shape as every
+-- `*_tokens` table (see e.g. amazon_tokens_rls.test.sql): RLS is enabled but
+-- no policy exists for any operation, so anon AND authenticated get denied
+-- on everything. Only the service-role key (the Worker's scheduled sync
+-- handler) can touch this table. Run with: supabase test db
+
+begin;
+select plan(4);
+
+create function pg_temp.try_update_sync_log(target_id uuid)
+returns int
+language plpgsql
+as $$
+declare
+  affected int;
+begin
+  update public.sync_logs set finished_at = now() where id = target_id;
+  get diagnostics affected = row_count;
+  return affected;
+end;
+$$;
+
+-- Written as the test-runner role (bypasses RLS), same as every other
+-- fixture insert in this test suite — mirrors how the Worker's service-role
+-- key would write this row in production.
+insert into public.sync_logs (id, platform, success_count, failure_count)
+values (
+  'aaaaaaaa-4444-0000-0000-000000000001',
+  'amazon',
+  3,
+  0
+);
+
+-- anon --------------------------------------------------------------------
+
+set local role anon;
+
+select is(
+  (select count(*) from public.sync_logs)::int,
+  0,
+  'anon has zero visibility into sync_logs'
+);
+
+reset role;
+
+-- an ordinary authenticated user (brand or provider) ----------------------
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"eeeeeeee-1111-0000-0000-000000000000","role":"authenticated"}';
+
+select is(
+  (select count(*) from public.sync_logs)::int,
+  0,
+  'an authenticated user cannot read sync_logs through the Data API — no select policy exists'
+);
+
+select throws_like(
+  $$ insert into public.sync_logs (platform, success_count, failure_count) values ('shopify', 0, 0) $$,
+  '%row-level security policy%',
+  'an authenticated user cannot insert a sync_logs row directly — no insert policy exists'
+);
+
+-- UPDATE with no applicable policy filters the target row out via an
+-- implicit USING(false) rather than raising — silently matches zero rows
+-- (same documented behavior as any RLS-blocked UPDATE in this repo; see
+-- CLAUDE.md Landmines).
+select is(
+  pg_temp.try_update_sync_log('aaaaaaaa-4444-0000-0000-000000000001'),
+  0,
+  'an authenticated user''s update against a sync_logs row silently matches zero rows — no update policy exists'
+);
+
+reset role;
+
+select * from finish();
+rollback;

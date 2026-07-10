@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   getShopifyTokenForBrand,
   getShopifyTokenForShop,
+  listShopifyTokens,
   resolveMasterSku,
   touchLastSyncedAt,
   upsertPlatformOrder,
@@ -161,5 +162,32 @@ describe('upsertPlatformOrder', () => {
       },
       fetchImpl,
     )
+  })
+})
+
+describe('listShopifyTokens', () => {
+  it('returns every row with no owner filter', async () => {
+    const fetchImpl = fakeFetch((url) => {
+      expect(url.pathname).toBe('/rest/v1/shopify_tokens')
+      expect(url.searchParams.has('brand_id')).toBe(false)
+      return Response.json([
+        { id: 't1', brand_id: 'brand-1', shop_domain: 'shop-1.myshopify.com', access_token: 'act_1', scope: 'read_orders', last_synced_at: null },
+        { id: 't2', brand_id: 'brand-2', shop_domain: 'shop-2.myshopify.com', access_token: 'act_2', scope: 'read_orders', last_synced_at: null },
+      ])
+    })
+
+    const tokens = await listShopifyTokens(env, fetchImpl)
+    expect(tokens).toHaveLength(2)
+    expect(tokens.map((t) => t.brand_id)).toEqual(['brand-1', 'brand-2'])
+  })
+
+  it('returns an empty array when no brand is connected', async () => {
+    const fetchImpl = fakeFetch(() => Response.json([]))
+    expect(await listShopifyTokens(env, fetchImpl)).toEqual([])
+  })
+
+  it('throws with a descriptive message on a database error', async () => {
+    const fetchImpl = fakeFetch(() => Response.json({ message: 'connection refused' }, { status: 500 }))
+    await expect(listShopifyTokens(env, fetchImpl)).rejects.toThrow(/Failed to list shopify_tokens/)
   })
 })

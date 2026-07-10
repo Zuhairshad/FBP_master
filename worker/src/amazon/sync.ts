@@ -1,6 +1,7 @@
 import { fetchOrderItems, fetchOrders, refreshAccessToken } from './client'
 import {
   cacheAccessToken,
+  listAmazonTokens,
   resolveMasterSku,
   touchLastSyncedAt,
   upsertPlatformOrder,
@@ -89,4 +90,52 @@ export async function syncAmazonOrders(
   await touchLastSyncedAt(env, params.brandId, fetchImpl)
 
   return { syncedCount: orders.length }
+}
+
+/** Phase 10: syncs every brand with a connected Amazon seller account, same
+ * per-brand recipe as handleSync in handlers.ts (ensureAccessToken then
+ * syncAmazonOrders) — see worker/src/shopify/sync.ts's
+ * syncAllShopifyBrands for the per-brand failure-isolation rationale
+ * (applies identically here, including a token-refresh failure counting as
+ * that brand's failure rather than aborting the whole platform run). */
+export async function syncAllAmazonBrands(
+  env: AmazonEnv,
+  params: { clientId: string; clientSecret: string },
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ successCount: number; failureCount: number; errors: string[] }> {
+  const tokens = await listAmazonTokens(env, fetchImpl)
+  const errors: string[] = []
+  let successCount = 0
+
+  for (const token of tokens) {
+    try {
+      const accessToken = await ensureAccessToken(
+        env,
+        {
+          brandId: token.brand_id,
+          clientId: params.clientId,
+          clientSecret: params.clientSecret,
+          refreshToken: token.refresh_token,
+          cachedAccessToken: token.access_token,
+          cachedAccessTokenExpiresAt: token.access_token_expires_at,
+        },
+        fetchImpl,
+      )
+      await syncAmazonOrders(
+        env,
+        {
+          brandId: token.brand_id,
+          marketplaceId: token.marketplace_id,
+          accessToken,
+          createdAfter: token.last_synced_at ?? undefined,
+        },
+        fetchImpl,
+      )
+      successCount++
+    } catch (err) {
+      errors.push(`brand ${token.brand_id}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  return { successCount, failureCount: errors.length, errors }
 }

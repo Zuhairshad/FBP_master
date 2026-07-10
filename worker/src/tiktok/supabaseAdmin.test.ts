@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   getTiktokTokenForBrand,
   getTiktokTokenForShop,
+  listTiktokTokens,
   resolveMasterSku,
   touchLastSyncedAt,
   upsertPlatformOrder,
@@ -157,5 +158,32 @@ describe('upsertPlatformOrder', () => {
       { brand_id: 'brand-1', platform: 'tiktok', platform_order_id: '1001', raw_data: { id: '1001' }, resolved_master_sku: 'SKU-001', status: 'resolved' },
       fetchImpl,
     )
+  })
+})
+
+describe('listTiktokTokens', () => {
+  it('returns every row with no owner filter', async () => {
+    const fetchImpl = fakeFetch((url) => {
+      expect(url.pathname).toBe('/rest/v1/tiktok_tokens')
+      expect(url.searchParams.has('brand_id')).toBe(false)
+      return Response.json([
+        { id: 't1', brand_id: 'brand-1', shop_id: 'shop-1', access_token: 'act_1', refresh_token: 'rft_1', access_token_expires_at: '2026-01-01T00:00:00Z', last_synced_at: null },
+        { id: 't2', brand_id: 'brand-2', shop_id: 'shop-2', access_token: 'act_2', refresh_token: 'rft_2', access_token_expires_at: '2026-01-01T00:00:00Z', last_synced_at: null },
+      ])
+    })
+
+    const tokens = await listTiktokTokens(env, fetchImpl)
+    expect(tokens).toHaveLength(2)
+    expect(tokens.map((t) => t.brand_id)).toEqual(['brand-1', 'brand-2'])
+  })
+
+  it('returns an empty array when no brand is connected', async () => {
+    const fetchImpl = fakeFetch(() => Response.json([]))
+    expect(await listTiktokTokens(env, fetchImpl)).toEqual([])
+  })
+
+  it('throws with a descriptive message on a database error', async () => {
+    const fetchImpl = fakeFetch(() => Response.json({ message: 'connection refused' }, { status: 500 }))
+    await expect(listTiktokTokens(env, fetchImpl)).rejects.toThrow(/Failed to list tiktok_tokens/)
   })
 })

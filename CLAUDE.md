@@ -45,7 +45,11 @@ order webhook. Phase 9 built on top of that: the fifth and final marketplace
 integration — Walmart, a third distinct auth model (OAuth client-credentials grant,
 brand-submitted Client ID + Client Secret, no browser redirect and no long-lived
 refresh_token at all) — completing all three auth-model shapes this repo has
-encountered across five marketplaces. No real users, no real money.
+encountered across five marketplaces. Phase 10 built on top of that: **Order Sync
+Automation** — every platform's manual-sync-only model gets a real `scheduled()` cron
+handler (`worker/src/scheduledSync.ts`) that syncs every connected brand on all five
+platforms on a timer, with a `sync_logs` row per platform per run. No real users, no
+real money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
@@ -489,7 +493,70 @@ self-authorization shape.
 built** (Shopify, TikTok, Amazon, eBay, Walmart — Phases 5-9), covering all
 three auth-model shapes encountered: OAuth-redirect (Shopify/TikTok/eBay),
 refresh-token self-authorization (Amazon), and client-credentials
-self-authorization (Walmart). Phase 10 (Order Sync Automation) is next.
+self-authorization (Walmart).
+
+**Order Sync Automation (built, Phase 10):** replaces "manual sync button only" with
+real background sync across every connected platform — the first time this repo's
+Worker exports a `scheduled()` handler, not just `fetch()`.
+1. **Schema** (`20260710221040_create_sync_logs.sql`): `sync_logs` records one row per
+   platform per scheduled run (`platform`, `started_at`, `finished_at`,
+   `success_count`, `failure_count`, `error_message`) — created when a platform's run
+   starts, updated when it finishes. RLS enabled with **zero policies**, same
+   defense-in-depth default as every `*_tokens` table — an explicit **ASSUMPTION**,
+   since unlike the tokens tables nothing in `sync_logs` is actually secret; kept
+   zero-policy for consistency with every other Worker-written table rather than
+   inventing a new access shape ahead of Phase 12's "admin oversight" decision, which is
+   where this table's real read path belongs. `error_message` holds only the *last*
+   error hit during a platform's run, not a full per-brand audit trail (ASSUMPTION,
+   simplest option given no UI consumes this yet).
+2. **`worker/src/shared/syncLogs.ts`**: `startSyncLog`/`finishSyncLog` — genuinely
+   platform-agnostic (a plain table write), so it lives in `shared/` per the Phase 6
+   convention rather than being duplicated five times.
+3. **Per-platform additions** (`shopify`/`tiktok`/`amazon`/`ebay`/`walmart`): each
+   `supabaseAdmin.ts` gained `listXTokens()` (every connected brand, no owner filter —
+   service-role bypasses RLS) and each `sync.ts` gained `syncAllXBrands()` — loops every
+   connected brand through that platform's existing per-brand `syncXOrders`/
+   `ensureAccessToken` (the exact same recipe `handleSync` already used for one bearer-
+   authenticated brand), catching each brand's failure individually rather than letting
+   one broken brand (revoked token, expired refresh token) abort the rest of that
+   platform's run. This is the same shape across all five platforms specifically
+   *because* Phase 6-9 already converged on identical per-brand sync signatures — Phase
+   10 needed no new per-platform abstraction, just a loop over what already existed.
+4. **`worker/src/scheduledSync.ts`**: `runScheduledSync(env, fetchImpl)` — the
+   orchestration entry point, kept as its own module rather than inlined in
+   `index.ts` so it stays testable via the repo's established injected-`fetchImpl`
+   convention (index.ts's own `scheduled()` export is a one-line dispatch, mirroring
+   how `fetch()` dispatches to each platform's `handlers.ts` rather than containing
+   logic itself). Runs all five platforms **concurrently** (`Promise.all`), each
+   independently wrapped in its own `startSyncLog`/`finishSyncLog` pair — a whole
+   platform crashing outright (e.g. `listXTokens` itself throwing on a DB outage) still
+   gets its own finished `sync_logs` row (`error_message` set, 0/0 counts) and does not
+   prevent the other four platforms from running or logging.
+5. **Idempotency** (ROADMAP's explicit ask) was already satisfied by Phase 5's own
+   design, not something Phase 10 had to add: every `upsertPlatformOrder` across all
+   five platforms already upserts on `(platform, platform_order_id)`, so a rerun (cron
+   firing again, or a brand's manual sync overlapping a scheduled one) never creates a
+   duplicate `platform_orders` row.
+6. **`wrangler.toml`**: `[triggers] crons = ["*/15 * * * *"]` — every 15 minutes.
+   **ASSUMPTION:** a reasonable default given no stated SLA on sync freshness anywhere
+   in ROADMAP.md; trivial to tighten or loosen later, and every platform currently
+   shares this one cadence (no per-platform schedule).
+7. **Worker tests:** `scheduledSync.test.ts` covers the orchestration logic directly
+   (injected `fetchImpl`, same convention as every platform) — all-platforms-succeed,
+   and one-platform-crashes-entirely-so-the-other-four-still-log. `index.test.ts`
+   additionally exercises the *real* exported `scheduled()` handler through the
+   Workers runtime via `createScheduledController`/`createExecutionContext`/
+   `waitOnExecutionContext` (`@cloudflare/vitest-pool-workers` covers `scheduled()`
+   test dispatch as a separate mechanism from `SELF.fetch()`) — since `scheduled()`'s
+   signature is fixed by `ExportedHandler` and takes no injectable `fetchImpl` param,
+   this one test stubs `globalThis.fetch` instead (restored in `afterEach`), the only
+   place in the Worker's test suite that does so rather than using the fetchImpl
+   convention, and only because the runtime entry point itself leaves no other seam.
+   34 new worker tests (263 total).
+8. **No frontend change.** Phase 10 is purely a background-sync mechanism; every
+   existing Connect/Orders page already reflects `last_synced_at`/order rows
+   regardless of whether a sync was triggered manually or by the cron, so nothing in
+   `app/` needed to change.
 
 ## Stack rules
 
@@ -579,7 +646,13 @@ self-authorization (Walmart). Phase 10 (Order Sync Automation) is next.
   `worker/src/ebay/` (44 more tests), and Phase 9's `worker/src/walmart/` (34 more
   tests, 226 total in the worker, 273 across app+worker) — this pattern has now
   covered every auth-model shape this repo's marketplace integrations use; no
-  future platform integration should reach for MSW in the Worker either.
+  future platform integration should reach for MSW in the Worker either. Phase 10's
+  `scheduledSync.ts`/`syncLogs.ts` (34 more tests, 263 total in the worker) reuse the
+  exact same convention — the one exception is `index.test.ts`'s new `scheduled()`
+  test, which stubs `globalThis.fetch` instead of injecting one: `scheduled()`'s
+  signature is fixed by Cloudflare's `ExportedHandler` type and takes no extra
+  parameter, so there's no injection seam at that one entry point the way every other
+  handler has.
 - **Shared vs. per-platform Worker code (decided in Phase 6, held through Phase 7-9):**
   `worker/src/shared/` holds primitives with no platform-specific logic (`hmac.ts`,
   `oauthState.ts` — moved out of `shopify/` in Phase 6 once TikTok needed the exact same

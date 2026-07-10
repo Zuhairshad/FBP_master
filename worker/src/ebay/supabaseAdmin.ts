@@ -141,3 +141,16 @@ export async function upsertPlatformOrder(
     throw new Error(`Failed to upsert platform_orders row ${order.platform_order_id}: ${error.message}`)
   }
 }
+
+/** Every brand with a connected eBay seller account — same rationale as
+ * worker/src/shopify/supabaseAdmin.ts's listShopifyTokens (Phase 10). */
+export async function listEbayTokens(env: EbayEnv, fetchImpl: typeof fetch = fetch): Promise<EbayTokenRow[]> {
+  const { data, error } = await adminClient(env, fetchImpl)
+    .from('ebay_tokens')
+    .select('id, brand_id, refresh_token, refresh_token_expires_at, access_token, access_token_expires_at, last_synced_at')
+
+  if (error) {
+    throw new Error(`Failed to list ebay_tokens: ${error.message}`)
+  }
+  return (data ?? []) as EbayTokenRow[]
+}
