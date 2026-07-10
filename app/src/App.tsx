@@ -8,6 +8,8 @@ import { RoleRedirect } from './pages/RoleRedirect'
 import { BrandDashboardPage } from './pages/BrandDashboardPage'
 import { ProviderDashboardPage } from './pages/ProviderDashboardPage'
 import { AdminDashboardPage } from './pages/AdminDashboardPage'
+import { ProductsPage } from './pages/ProductsPage'
+import { WarehousesPage } from './pages/WarehousesPage'
 
 function App() {
   return (
@@ -22,10 +24,12 @@ function App() {
 
             <Route element={<RequireRole role="brand" />}>
               <Route path="/brand" element={<BrandDashboardPage />} />
+              <Route path="/brand/products" element={<ProductsPage />} />
             </Route>
 
             <Route element={<RequireRole role="provider" />}>
               <Route path="/provider" element={<ProviderDashboardPage />} />
+              <Route path="/provider/warehouses" element={<WarehousesPage />} />
             </Route>
 
             <Route element={<RequireRole role="admin" />}>

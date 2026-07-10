@@ -21,8 +21,10 @@ marketplaces (Amazon, TikTok, eBay, Walmart, Shopify) into the provider's dashbo
 repo is a **from-scratch rebuild** of an existing PHP/Laravel + React version on a new stack
 (React/Vite SPA + Supabase + Cloudflare Workers) — see `Overrides` for why. **Current state:**
 auth + role model built (Phase 1 of `ROADMAP.md`) — sign-up/sign-in, brand/provider/admin roles,
-RLS on `profiles`. Dashboards past that are empty shells; no marketplace integrations exist yet.
-No real users, no real money.
+RLS on `profiles`. Phase 2 built on top: provider warehouse setup (`warehouses` +
+`warehouse_services` + `storage_spaces`) and brand product listings (`products`, Master SKU),
+both owner-only RLS with a role check on insert. No booking/order flow yet; no marketplace
+integrations exist yet. No real users, no real money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
@@ -79,9 +81,22 @@ signup requesting `admin` down to `brand`, and a `prevent_role_change` trigger b
 `ProtectedRoute` (unauthenticated → `/sign-in`) and `RequireRole` (wrong role → own dashboard)
 are the client-side route guards; real authorization is still RLS, not the route guard.
 
-**Not yet built (ASSUMPTION, will change as features land):** the SKU-mapping schema and the
-marketplace integrations themselves — the target shape carried over from the prior version's
-design.
+**Core data model (built, Phase 2):** `warehouses` (provider-owned, `provider_id` →
+`profiles.id`) with child tables `warehouse_services` and `storage_spaces` (ownership derived
+via the parent warehouse — no `provider_id` column on the children, RLS policies join up to
+`warehouses`); `products` (brand-owned, `brand_id` → `profiles.id`, unique per-brand
+`master_sku` — the anchor Phase 4's `sku_mappings` will resolve marketplace SKUs back to).
+RLS on all four: owner-only, **plus a role check in the `INSERT` policy's `WITH CHECK`**
+(`profiles.role = 'provider'`/`'brand'`) — ownership alone (`auth.uid() = provider_id`) would
+let a brand account insert a row into `warehouses` under its own id, since nothing else stops
+it; the role check closes that. See `supabase/tests/warehouses_rls.test.sql` and
+`products_rls.test.sql`. Frontend: `/provider/warehouses` (`WarehousesPage`) and
+`/brand/products` (`ProductsPage`) query Supabase directly (no Worker involved — plain
+RLS-authorized CRUD, per the Architecture facts rule above).
+
+**Not yet built (ASSUMPTION, will change as features land):** booking flow (Phase 3),
+SKU-mapping schema (Phase 4), and the marketplace integrations themselves — the target shape
+carried over from the prior version's design.
 
 ## Stack rules
 
