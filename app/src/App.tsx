@@ -5,21 +5,27 @@ import { RequireRole } from './components/RequireRole'
 import { SignUpPage } from './pages/SignUpPage'
 import { SignInPage } from './pages/SignInPage'
 import { RoleRedirect } from './pages/RoleRedirect'
-import { BrandDashboardPage } from './pages/BrandDashboardPage'
-import { ProviderDashboardPage } from './pages/ProviderDashboardPage'
-import { AdminDashboardPage } from './pages/AdminDashboardPage'
-import { ProductsPage } from './pages/ProductsPage'
-import { WarehousesPage } from './pages/WarehousesPage'
-import { BookingsPage } from './pages/BookingsPage'
-import { InventoryPage } from './pages/InventoryPage'
-import { ProviderBookingsPage } from './pages/ProviderBookingsPage'
-import { ProviderInventoryPage } from './pages/ProviderInventoryPage'
-import { SkuMappingsPage } from './pages/SkuMappingsPage'
-import { ShopifyConnectPage } from './pages/ShopifyConnectPage'
-import { ShopifyOrdersPage } from './pages/ShopifyOrdersPage'
-import { TiktokConnectPage } from './pages/TiktokConnectPage'
-import { TiktokOrdersPage } from './pages/TiktokOrdersPage'
-import { ProviderOrdersPage } from './pages/ProviderOrdersPage'
+import { BrandDashboardPage } from './brand/BrandDashboardPage'
+import { ProviderDashboardPage } from './provider/ProviderDashboardPage'
+import { AdminDashboardPage } from './admin/AdminDashboardPage'
+import { ProductsPage } from './products/ProductsPage'
+import { WarehousesPage } from './provider/WarehousesPage'
+import { BookingsPage } from './brand/BookingsPage'
+import { InventoryPage } from './brand/InventoryPage'
+import { ProviderBookingsPage } from './provider/ProviderBookingsPage'
+import { ProviderInventoryPage } from './provider/ProviderInventoryPage'
+import { SkuMappingsPage } from './brand/SkuMappingsPage'
+import { ShopifyConnectPage } from './brand/ShopifyConnectPage'
+import { ShopifyOrdersPage } from './brand/ShopifyOrdersPage'
+import { TiktokConnectPage } from './brand/TiktokConnectPage'
+import { TiktokOrdersPage } from './brand/TiktokOrdersPage'
+import { AmazonConnectPage } from './brand/AmazonConnectPage'
+import { AmazonOrdersPage } from './brand/AmazonOrdersPage'
+import { EbayConnectPage } from './brand/EbayConnectPage'
+import { EbayOrdersPage } from './brand/EbayOrdersPage'
+import { WalmartConnectPage } from './brand/WalmartConnectPage'
+import { WalmartOrdersPage } from './brand/WalmartOrdersPage'
+import { ProviderOrdersPage } from './provider/ProviderOrdersPage'
 
 function App() {
   return (
@@ -42,6 +48,12 @@ function App() {
               <Route path="/brand/shopify/orders" element={<ShopifyOrdersPage />} />
               <Route path="/brand/tiktok" element={<TiktokConnectPage />} />
               <Route path="/brand/tiktok/orders" element={<TiktokOrdersPage />} />
+              <Route path="/brand/amazon" element={<AmazonConnectPage />} />
+              <Route path="/brand/amazon/orders" element={<AmazonOrdersPage />} />
+              <Route path="/brand/ebay" element={<EbayConnectPage />} />
+              <Route path="/brand/ebay/orders" element={<EbayOrdersPage />} />
+              <Route path="/brand/walmart" element={<WalmartConnectPage />} />
+              <Route path="/brand/walmart/orders" element={<WalmartOrdersPage />} />
             </Route>
 
             <Route element={<RequireRole role="provider" />}>

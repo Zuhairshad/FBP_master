@@ -242,51 +242,243 @@ blocker above.
 
 ---
 
-## Phase 7 — Marketplace Integration: Amazon SP-API `[ ]`
+## Phase 7 — Marketplace Integration: Amazon SP-API `[~]`
 
 **Blocked on (live testing):** client's production Seller refresh token — build and
-test against the SP-API **sandbox** regardless.
+test against the SP-API shapes regardless. Amazon's own docs portal
+(`developer-docs.amazon.com`) returned HTTP 403 from this sandbox's network policy when
+fetched directly (same class of block as TikTok's docs site) — but the `getOrders`/
+`getOrderItems` field names below were verified against Amazon's own
+`selling-partner-api-models` GitHub repo (a first-party, machine-readable schema
+source), and the LWA refresh-token flow + the Oct 2023 "SP-API no longer requires AWS
+IAM or AWS Signature Version 4" changelog entry were both confirmed via multiple
+independent sources — firmer footing than TikTok's secondary-source-only ASSUMPTIONs.
 
-- [ ] `AmazonSpApiService` (LWA token refresh, `getOrders`/`getOrderItems`) +
-      `amazon_tokens` + webhook/sync route
-- [ ] Worker tests (MSW against sandbox shapes), RLS tests, connect + order UI, `@smoke`
-- [ ] Floor + tests + build + smoke; Eyes
+- [x] **No `AmazonSpApiService`-style OAuth install/callback flow** — deviated from this
+      line's framing on purpose. Amazon's SP-API for a private/internal app uses
+      "self-authorization": the seller generates a long-lived refresh token directly in
+      Seller Central and hands it to the brand, who submits it through our own form
+      (`AmazonConnectPage`) rather than our Worker hosting a redirect flow the way
+      Shopify/TikTok's install/callback pair does. See `CLAUDE.md` for the full
+      rationale.
+- [x] **No SigV4 request signing** — Amazon deprecated the mandatory AWS Signature
+      Version 4 requirement in Oct 2023; SP-API requests need only the LWA access token
+      in an `x-amz-access-token` header. Simpler than TikTok's HMAC scheme, not a
+      shortcut.
+- [x] Migration: `amazon_tokens` (mirrors `shopify_tokens`/`tiktok_tokens` — zero RLS
+      policies, service-role only; `platform_orders` needed no schema change, its
+      `platform` column already accepts `'amazon'`)
+- [x] Worker: `worker/src/amazon/` — LWA token refresh (`refreshAccessToken`, cached with
+      a 60s expiry skew via `ensureAccessToken` so sync doesn't re-mint on every call),
+      `getOrders`/`getOrderItems` (the latter is a separate per-order call — Amazon's
+      order objects carry no inline line-item array the way Shopify/TikTok's do),
+      SKU-resolved upsert, manual sync endpoint, `/amazon/status`, `/amazon/connect`
+      (replaces install/callback — see above)
+- [x] **No webhook route** — deviated from this line's framing on purpose. Amazon's
+      real near-real-time mechanism is the Notifications API over SQS, not a simple
+      inbound HTTP POST the way Shopify/TikTok's webhooks work — architecturally a
+      different integration, and Phase 10 ("Order Sync Automation") already owns turning
+      every platform's manual-sync-only into real background sync. Not a gap unique to
+      Amazon: Shopify/TikTok are also manual-sync-only as of their own phases.
+- [x] **Deviated from MSW**, same as Phase 5/6: every network-calling function takes an
+      injected `fetchImpl`. 37 new worker tests (185 total across app+worker), all in the
+      Workers runtime
+- [x] RLS tests: `amazon_tokens_rls.test.sql` (zero-policy shape, mirrors
+      `shopify_tokens_rls.test.sql`/`tiktok_tokens_rls.test.sql`) — written, **not yet
+      executed against a live Postgres** (same sandbox DB blocker as every phase so far)
+- [x] Frontend: `AmazonConnectPage` (refresh-token + marketplace-id paste form instead
+      of an OAuth redirect button — see above), `AmazonOrdersPage` (with the
+      `.eq('platform', 'amazon')` filter learned from Phase 6's bug)
+- [ ] e2e `@smoke`: same carried-forward, repo-wide gap as Phase 5/6 (Phase 13 closes it)
+- [x] Floor + Foundation rung (new platform module + widened `Env` type) + build +
+      `wrangler deploy --dry-run` — all green
+- [x] Eyes: unauthenticated redirect confirmed clean on `/brand/amazon` and
+      `/brand/amazon/orders` (desktop + mobile, no console errors); **full visual check
+      of the authenticated flows is UNVERIFIED** (needs a live session, same DB blocker
+      as every phase so far). LWA/SP-API round-trip against a real Amazon seller account
+      is UNVERIFIED end-to-end (needs the client's production refresh token, per the
+      blocker above)
 
 ---
 
-## Phase 8 — Marketplace Integration: eBay `[ ]`
+## Phase 8 — Marketplace Integration: eBay `[~]`
 
 **Blocked on (live testing):** client must re-register at developer.ebay.com (prior
-account rejected) — build and test against eBay sandbox/mocks regardless.
+account rejected) — built and tested against eBay's documented API shapes regardless,
+same policy as every marketplace phase before this one. eBay's own docs portal
+(`developer.ebay.com`) also returned HTTP 403 from this sandbox's network policy when
+fetched directly via WebFetch (same class of block as TikTok's/Amazon's docs sites) —
+but WebSearch's result synthesis quoted developer.ebay.com's own page content directly
+(request/response shapes, the RuName mechanic, the account-deletion challenge-hash
+algorithm) rather than paraphrasing a third-party description of the same spec — a
+first-party *source*, though not a first-party *fetch*. Everything is unit-tested
+against this documented format; UNVERIFIED end-to-end against a live eBay
+sandbox/production app.
 
-- [ ] `EbayApiService` (OAuth token management) + `ebay_tokens` + webhook/sync route
-- [ ] Worker tests (MSW), RLS tests, connect + order UI, `@smoke`
-- [ ] Floor + tests + build + smoke; Eyes
+- [x] eBay's OAuth model is the authorization-code-grant **redirect** flow — same
+      shape as Shopify/TikTok, not Amazon's self-authorization. One eBay-specific
+      quirk: eBay's `redirect_uri` parameter must be a "RuName" eBay assigns per
+      registered app (not a literal callback URL) — see `worker/src/ebay/env.ts`'s
+      `EBAY_RU_NAME` and `client.ts`'s `buildAuthorizeUrl`.
+- [x] Migration: `ebay_tokens` (mirrors shopify_tokens/tiktok_tokens/amazon_tokens —
+      zero RLS policies, service-role only; `platform_orders` needed no schema change,
+      its `platform` column already accepts `'ebay'`)
+- [x] Worker: `worker/src/ebay/` — OAuth install/callback (signed-state CSRF binding,
+      same `shared/oauthState.ts` primitive as Shopify/TikTok), access-token caching
+      with a 60s expiry skew via `ensureAccessToken` (same shape as Amazon's, since
+      eBay's 2-hour access token is similarly short-lived), order fetch (line items
+      arrive inline, no per-order fan-out call needed — like Shopify/TikTok, unlike
+      Amazon), SKU-resolved upsert, manual sync endpoint, `/ebay/status`
+- [x] **Mandatory Marketplace Account Deletion notification endpoint** — deviated
+      from a plain order-webhook route on purpose. eBay requires every app that
+      stores eBay user data to subscribe to and correctly answer a
+      challenge/verification handshake (`GET` with `challenge_code` →
+      `{"challengeResponse": sha256(challengeCode + verificationToken + endpoint)}`)
+      before the subscription is accepted, and to acknowledge (`POST`, 200) every
+      subsequent notification — non-compliance risks API access termination. Built
+      as `/webhooks/ebay/account-deletion` (`handleDeletionChallenge` +
+      `handleDeletionNotification`). **Scope note:** this app has no column
+      correlating an eBay userId/username back to a `brand_id` yet (`ebay_tokens` is
+      keyed by our own `brand_id`, not eBay's user identity), so the notification
+      handler acknowledges but does not yet perform per-brand token revocation from
+      the payload alone — flagged as an explicit ASSUMPTION in
+      `worker/src/ebay/handlers.ts`, not silently dropped.
+- [x] **No order webhook** (distinct from the deletion-notification endpoint above) —
+      deferred to Phase 10 same as Shopify/TikTok/Amazon; manual sync only for now.
+- [x] **Deviated from MSW**, same as every marketplace phase before this one: every
+      network-calling function takes an injected `fetchImpl`. 44 new worker tests
+      (192 total across worker, 234 across app+worker), all in the Workers runtime
+- [x] RLS tests: `ebay_tokens_rls.test.sql` (zero-policy shape, mirrors
+      `shopify_tokens_rls.test.sql`/`tiktok_tokens_rls.test.sql`/
+      `amazon_tokens_rls.test.sql`) — written, **not yet executed against a live
+      Postgres** (same sandbox DB blocker as every phase so far)
+- [x] Frontend: `EbayConnectPage` (redirect-flow connect button, no shop-identifier
+      form — same shape as `TiktokConnectPage`, since eBay's authorize URL has no
+      shop-domain parameter either), `EbayOrdersPage` (with the
+      `.eq('platform', 'ebay')` filter learned from Phase 6's bug, built in from the
+      start like Phase 7's Amazon page)
+- [ ] e2e `@smoke`: same carried-forward, repo-wide gap as every prior marketplace
+      phase (Phase 13 closes it)
+- [x] Floor + Foundation rung (new platform module + widened `Env` type) + build +
+      `wrangler deploy --dry-run` — all green
+- [x] Eyes: unauthenticated redirect confirmed clean on `/brand/ebay` and
+      `/brand/ebay/orders` (desktop + mobile, no console errors); **full visual check
+      of the authenticated flows is UNVERIFIED** (needs a live session, same DB
+      blocker as every phase so far). OAuth round-trip against a real eBay
+      sandbox/production app is UNVERIFIED end-to-end (needs the client's
+      re-registered developer.ebay.com account, per the blocker above)
 
 ---
 
-## Phase 9 — Marketplace Integration: Walmart `[ ]`
+## Phase 9 — Marketplace Integration: Walmart `[~]`
 
 **Blocked on (live testing):** client needs a new US-based Walmart seller account
-(prior one terminated) — build and test against mocks regardless.
+(prior one terminated) — built and tested against Walmart's documented API shapes
+regardless, same policy as every marketplace phase before this one. Walmart's own
+docs portal (`developer.walmart.com`) also returned HTTP 403 from this sandbox's
+network policy when fetched directly via WebFetch (same class of block as every
+other marketplace platform's docs site) — but WebSearch's result synthesis quoted
+developer.walmart.com's own page content directly (the token endpoint, the
+client-credentials grant shape, the required `WM_*` headers, the 15-minute token
+lifetime, the orders response's nested `list.elements.order` shape) — same
+first-party-source-not-fetch posture as Phase 8's eBay integration. Everything is
+unit-tested against this documented format; UNVERIFIED end-to-end against a live
+Walmart seller account.
 
-- [ ] `WalmartApiService` (client-credentials flow) + `walmart_tokens` + webhook/sync route
-- [ ] Worker tests (MSW), RLS tests, connect + order UI, `@smoke`
-- [ ] Floor + tests + build + smoke; Eyes
+- [x] **A third, distinct auth model** — deviated from the Shopify/TikTok/eBay
+      redirect-flow template and from Amazon's refresh-token-self-authorization
+      template, on purpose. Walmart's Marketplace API uses an OAuth
+      **client-credentials** grant: no browser redirect (like Amazon), but also no
+      long-lived refresh_token at all (unlike Amazon) — a seller generates their own
+      Client ID + Client Secret directly in Walmart Seller Center and hands both to
+      the brand, who submits them through our own form (`WalmartConnectPage`).
+      Every sync mints a fresh access token straight from client_id+client_secret;
+      those two values are the durable credential, reused on every mint.
+- [x] **The Worker holds zero app-level Walmart secret** — a first in this repo.
+      Every prior platform's Worker env needed at least one shared app-level
+      credential (Shopify/TikTok/eBay's OAuth client id+secret, Amazon's LWA client
+      id+secret) alongside whatever the brand submitted. Walmart's client-credentials
+      grant needs only the brand-submitted client_id/client_secret — `WalmartWorkerEnv`
+      is just `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`, see `worker/src/walmart/env.ts`.
+- [x] Migration: `walmart_tokens` (mirrors shopify_tokens/tiktok_tokens/amazon_tokens/
+      ebay_tokens — zero RLS policies, service-role only; `platform_orders` needed no
+      schema change, its `platform` column already accepts `'walmart'`)
+- [x] Worker: `worker/src/walmart/` — client-credentials token minting
+      (`mintAccessToken`), access-token caching with a 60s expiry skew via
+      `ensureAccessToken` (same shape as Amazon's/eBay's, more valuable here since
+      Walmart's 15-minute token is the shortest-lived of any platform in this repo),
+      order fetch (order lines arrive inline, no per-order fan-out call needed —
+      like Shopify/TikTok/eBay, unlike Amazon), SKU-resolved upsert, manual sync
+      endpoint, `/walmart/status`, `/walmart/connect` (accepts brand-submitted
+      `{clientId, clientSecret}`, same shape as Amazon's `handleConnect`)
+- [x] **No install/callback pair** (no OAuth redirect flow exists for this auth
+      model) and **no webhook** (Walmart's real notification system needs a
+      separate subscription setup — deferred to Phase 10 same as every platform
+      before it; manual sync only for now) — three routes total, same count as
+      Amazon's.
+- [x] **Deviated from MSW**, same as every marketplace phase before this one: every
+      network-calling function takes an injected `fetchImpl`. 34 new worker tests
+      (226 total across worker, 273 across app+worker), all in the Workers runtime
+- [x] RLS tests: `walmart_tokens_rls.test.sql` (zero-policy shape, mirrors
+      `shopify_tokens_rls.test.sql`/`tiktok_tokens_rls.test.sql`/
+      `amazon_tokens_rls.test.sql`/`ebay_tokens_rls.test.sql`) — written, **not yet
+      executed against a live Postgres** (same sandbox DB blocker as every phase so
+      far)
+- [x] Frontend: `WalmartConnectPage` (Client ID + Client Secret paste-in form, same
+      shape as `AmazonConnectPage`'s refresh-token+marketplace-id form), `WalmartOrdersPage`
+      (with the `.eq('platform', 'walmart')` filter built in from the start, same
+      discipline as Phase 7/8's pages)
+- [ ] e2e `@smoke`: same carried-forward, repo-wide gap as every prior marketplace
+      phase (Phase 13 closes it)
+- [x] Floor + Foundation rung (new platform module + widened `Env` type) + build +
+      `wrangler deploy --dry-run` — all green
+- [x] Eyes: unauthenticated redirect confirmed clean on `/brand/walmart` and
+      `/brand/walmart/orders` (desktop + mobile, no console errors); **full visual
+      check of the authenticated flows is UNVERIFIED** (needs a live session, same
+      DB blocker as every phase so far). Client-credentials round-trip against a
+      real Walmart seller account is UNVERIFIED end-to-end (needs the client's new
+      US-based Walmart seller account, per the blocker above)
+
+**All five Phase 5-9 marketplace integrations are now built** — Shopify, TikTok,
+Amazon, eBay, Walmart — covering all three auth-model shapes this repo has
+encountered (OAuth-redirect, refresh-token self-authorization, client-credentials
+self-authorization). Phase 10 (Order Sync Automation) is next up per the roadmap
+order.
 
 ---
 
-## Phase 10 — Order Sync Automation `[ ]`
+## Phase 10 — Order Sync Automation `[~]`
 
 **Goal:** replace "manual sync button only" with real background sync across all
 connected platforms.
 
-- [ ] `wrangler.toml` `[triggers] crons` + scheduled handler in the Worker
-- [ ] Per-platform sync orchestration, idempotent upsert (no duplicate orders on rerun)
-- [ ] `sync_logs` table (run started/finished, per-platform success/failure counts)
-- [ ] Worker tests for the scheduled handler (`@cloudflare/vitest-pool-workers` covers
-      `scheduled()`, not just `fetch()`)
-- [ ] Floor + Foundation rung (touches the shared sync path for every platform) + build
+- [x] `wrangler.toml` `[triggers] crons = ["*/15 * * * *"]` + `scheduled()` handler in
+      the Worker (`worker/src/index.ts` dispatches to `worker/src/scheduledSync.ts`,
+      same as `fetch()` dispatches to each platform's `handlers.ts`). 15-minute cadence
+      is an ASSUMPTION (no stated sync-freshness SLA), trivially adjustable.
+- [x] Per-platform sync orchestration: each platform's `sync.ts` gained
+      `syncAllXBrands()`, looping every connected brand through the exact same
+      per-brand recipe `handleSync` already used, with per-brand failure isolation
+      (one broken brand doesn't abort the platform's run). Idempotent upsert was
+      **already true** from Phase 5 onward — every `upsertPlatformOrder` upserts on
+      `(platform, platform_order_id)` — nothing new needed there.
+- [x] `sync_logs` table (`20260710221040_create_sync_logs.sql`) — one row per platform
+      per run, `success_count`/`failure_count`/`error_message`. Zero-RLS-policy,
+      service-role only, same shape as every `*_tokens` table (ASSUMPTION: stricter
+      than strictly necessary since nothing here is secret; Phase 12 decides its real
+      read path). RLS test written (`sync_logs_rls.test.sql`), **not yet executed
+      against a live Postgres** (same sandbox DB blocker as every phase so far).
+- [x] Worker tests for the scheduled handler: `scheduledSync.test.ts` (orchestration
+      logic, injected `fetchImpl`) + `index.test.ts` (the real exported `scheduled()`
+      via `createScheduledController`/`createExecutionContext`/
+      `waitOnExecutionContext` — `@cloudflare/vitest-pool-workers` exercising
+      `scheduled()`, not just `fetch()`, per this line's original ask). 34 new worker
+      tests (263 total).
+- [x] Floor + Foundation rung (touches the shared sync path for every platform) + build
+      + `wrangler deploy --dry-run` — all green. No frontend change this phase.
+- [ ] UNVERIFIED: the cron actually firing and syncing real connected brands on a live
+      Cloudflare deployment — needs a real `wrangler deploy` + live credentials for at
+      least one platform, neither available in this sandbox.
 
 ---
 

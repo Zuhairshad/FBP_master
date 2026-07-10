@@ -143,3 +143,19 @@ export async function upsertPlatformOrder(
     throw new Error(`Failed to upsert platform_orders row ${order.platform_order_id}: ${error.message}`)
   }
 }
+
+/** Every brand with a connected TikTok Shop — same rationale as
+ * worker/src/shopify/supabaseAdmin.ts's listShopifyTokens (Phase 10). */
+export async function listTiktokTokens(
+  env: TiktokEnv,
+  fetchImpl: typeof fetch = fetch,
+): Promise<TiktokTokenRow[]> {
+  const { data, error } = await adminClient(env, fetchImpl)
+    .from('tiktok_tokens')
+    .select('id, brand_id, shop_id, access_token, refresh_token, access_token_expires_at, last_synced_at')
+
+  if (error) {
+    throw new Error(`Failed to list tiktok_tokens: ${error.message}`)
+  }
+  return (data ?? []) as TiktokTokenRow[]
+}

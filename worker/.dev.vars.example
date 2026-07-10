@@ -22,3 +22,26 @@ WORKER_URL=http://localhost:8787
 # worker/src/tiktok/client.ts.
 TIKTOK_APP_KEY=
 TIKTOK_APP_SECRET=
+
+# Amazon SP-API LWA app credentials (Phase 7). Used only to refresh a
+# brand-submitted refresh token into a short-lived access token — there is
+# no OAuth install/callback flow for Amazon, see
+# worker/src/amazon/handlers.ts.
+AMAZON_CLIENT_ID=
+AMAZON_CLIENT_SECRET=
+
+# eBay app credentials (Phase 8). EBAY_RU_NAME is eBay's assigned redirect
+# identifier (not a literal URL) used as the OAuth authorize/token-exchange
+# redirect_uri — see worker/src/ebay/client.ts. EBAY_VERIFICATION_TOKEN is
+# whatever token you register for the marketplace-account-deletion
+# notification subscription; required to compute the endpoint-verification
+# challenge hash, see worker/src/ebay/handlers.ts.
+EBAY_CLIENT_ID=
+EBAY_CLIENT_SECRET=
+EBAY_RU_NAME=
+EBAY_VERIFICATION_TOKEN=
+
+# Walmart (Phase 9): no vars needed here at all. Walmart's client-credentials
+# grant uses only the brand-submitted client_id/client_secret pair stored in
+# walmart_tokens (entered via WalmartConnectPage) — see
+# worker/src/walmart/env.ts and the walmart_tokens migration's header comment.

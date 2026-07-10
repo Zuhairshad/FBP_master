@@ -34,7 +34,22 @@ connects a Shopify store via OAuth, orders sync (manually or via webhook) into a
 `platform_orders` table resolved through Phase 4's SKU mapping, and the Worker (`worker/`)
 went from an empty scaffold to a real service layer for the first time. Phase 6 built on
 top of that: the second marketplace integration — TikTok Shop, same shape as Shopify,
-sharing `platform_orders` with no schema change. No real users, no real money.
+sharing `platform_orders` with no schema change. Phase 7 built on top of that: the third
+marketplace integration — Amazon SP-API, structurally different from Shopify/TikTok
+(no OAuth redirect flow, no request signing, no webhook — see its write-up below for
+why each of those is a deliberate deviation, not a shortcut). Phase 8 built on top of
+that: the fourth marketplace integration — eBay, back to the OAuth-redirect shape
+(like Shopify/TikTok, not Amazon's self-authorization), plus a mandatory
+Marketplace Account Deletion notification endpoint eBay requires independent of any
+order webhook. Phase 9 built on top of that: the fifth and final marketplace
+integration — Walmart, a third distinct auth model (OAuth client-credentials grant,
+brand-submitted Client ID + Client Secret, no browser redirect and no long-lived
+refresh_token at all) — completing all three auth-model shapes this repo has
+encountered across five marketplaces. Phase 10 built on top of that: **Order Sync
+Automation** — every platform's manual-sync-only model gets a real `scheduled()` cron
+handler (`worker/src/scheduledSync.ts`) that syncs every connected brand on all five
+platforms on a timer, with a `sync_logs` row per platform per run. No real users, no
+real money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
@@ -59,8 +74,13 @@ sharing `platform_orders` with no schema change. No real users, no real money.
 - `app/` — React 19 + Vite + TypeScript SPA. Tailwind v4 via `@tailwindcss/vite`. `react-router`
   for client-side routing. `src/lib/supabase.ts` is the **browser** Supabase client (publishable
   key only, RLS-enforced). `src/hooks/` (auth context/provider/hook), `src/components/`
-  (route guards, shared UI), `src/pages/` (routed pages), `src/types/database.ts` (Supabase
-  types — regenerate with `pnpm db:types`, never hand-edit once real).
+  (route guards, shared UI). Routed pages live in top-level, role-scoped directories —
+  `src/brand/`, `src/provider/`, `src/admin/` — plus `src/products/` (product catalog
+  management, a brand-only feature but kept as its own top-level concern rather than folded
+  into `brand/`). `src/pages/` is now reserved for the three role-agnostic pages that run
+  *before* a role is known — `SignInPage`, `SignUpPage`, `RoleRedirect` — not a general pages
+  directory. `src/types/database.ts` (Supabase types — regenerate with `pnpm db:types`, never
+  hand-edit once real).
 - `worker/` — Cloudflare Worker (TypeScript). `src/index.ts` is the fetch handler — this is
   where all privileged logic will live: marketplace webhooks, OAuth token refresh, order
   sync, anything holding the Supabase service-role key or marketplace secrets.
@@ -265,8 +285,278 @@ as Shopify — this is the pair that proves the Phase 5 template generalizes.
    cross-platform leak with two. Fixed on both `ShopifyOrdersPage` and the new
    `TiktokOrdersPage`, with test coverage asserting the filter.
 
-**Not yet built (ASSUMPTION, will change as features land):** Phases 7-9's remaining
-marketplace integrations (Amazon, eBay, Walmart) — Phase 5/6 are their template.
+**Amazon SP-API integration (built, Phase 7):** third marketplace integration —
+structurally the most different from Shopify/TikTok of the three, driven entirely by
+how Amazon's own SP-API actually works, not by choice.
+1. **Schema** (`20260710191910_create_amazon_tokens.sql`): `amazon_tokens` mirrors
+   `shopify_tokens`/`tiktok_tokens`' zero-RLS shape, but `refresh_token` is
+   **brand-submitted** rather than Worker-obtained via an OAuth callback (see below) —
+   still written only via the service-role key, still never readable back out through
+   the Data API. Adds `marketplace_id` (every SP-API order call is scoped to a specific
+   Amazon marketplace, e.g. `ATVPDKIKX0DER` for the US) and a cached
+   `access_token`/`access_token_expires_at` pair (the 1-hour-lived LWA token minted from
+   `refresh_token`). `platform_orders` needed no schema change — its `platform` enum
+   already accepted `'amazon'`.
+2. **No OAuth install/callback flow.** Amazon's SP-API for a private/internal app uses
+   "self-authorization": the seller generates a long-lived refresh token directly in
+   Seller Central and hands it to the brand out of band, rather than our Worker hosting
+   a redirect the seller clicks through (unlike Shopify/TikTok, where our Worker builds
+   and owns that flow end to end). So `POST /amazon/connect` just accepts a
+   brand-submitted `{ refreshToken, marketplaceId }` body (bearer-authenticated like
+   every other brand-facing endpoint) and stores it — there is no `/amazon/install` or
+   `/amazon/callback`, and no `oauthState.ts` CSRF-binding usage at all for this
+   platform, since there's no redirect to bind. `AmazonConnectPage` is a paste-in
+   credentials form rather than a "Connect" button that navigates away, an accepted
+   trust-boundary consequence of Amazon's own documented flow (the seller is shown this
+   token specifically to hand to third-party apps), not a shortcut we introduced.
+3. **No SigV4 request signing.** SP-API required AWS IAM + Signature Version 4 on every
+   request historically; Amazon deprecated that requirement in Oct 2023 (confirmed via
+   multiple independent sources, including Amazon's own SP-API changelog) — requests now
+   need only the LWA access token in an `x-amz-access-token` header. Simpler than
+   TikTok's HMAC-SHA256 request signing, not a corner cut.
+4. **Worker service layer** (`worker/src/amazon/`): `client.ts` (`refreshAccessToken` —
+   LWA `grant_type=refresh_token`; `fetchOrders`/`fetchOrderItems` — Amazon's
+   `getOrderItems` is a **separate call per order**, unlike Shopify/TikTok where each
+   order's line items arrive inline, since an Amazon order object carries no line-item
+   array of its own), `supabaseAdmin.ts`, `sync.ts` (`ensureAccessToken` caches the
+   minted access token with a 60-second expiry skew so a sync run doesn't re-mint on
+   every call; `syncAmazonOrders` fans out one `getOrderItems` call per order to resolve
+   each order's first item's `SellerSKU`), `handlers.ts` (`handleStatus`/
+   `handleConnect`/`handleSync` — three routes, not five, since there's no
+   install/callback pair), `env.ts`/`types.ts` (field names verified against Amazon's own
+   `selling-partner-api-models` GitHub repo — see the ASSUMPTION note below). Same
+   `fetchImpl`-injection testing pattern as Shopify/TikTok — 37 more tests (185 total
+   across app+worker).
+5. **No webhook route.** Amazon's real near-real-time mechanism is the Notifications API
+   over SQS — a fundamentally different integration shape than a simple inbound HTTP
+   POST (would need an SQS queue + subscription, not a Worker route) — so this is
+   deferred to Phase 10 ("Order Sync Automation"), which already owns turning every
+   platform's manual-sync-only into real background sync. Not a gap unique to Amazon:
+   Shopify and TikTok are also manual-sync-only as of their own phases.
+6. **Routes**: `GET /amazon/status`, `POST /amazon/connect`, `POST /amazon/sync` —
+   dispatched from the same `worker/src/index.ts`, whose `Env` type now extends
+   `ShopifyWorkerEnv`, `TiktokWorkerEnv`, and `AmazonWorkerEnv`.
+7. **Frontend:** `/brand/amazon` (`AmazonConnectPage` — refresh-token + marketplace-id
+   form, per the self-authorization difference above), `/brand/amazon/orders`
+   (`AmazonOrdersPage`, built with the `.eq('platform', 'amazon')` filter from the start
+   — Phase 6's bug already taught this lesson). `ProviderOrdersPage` needed **no**
+   change, same as Phase 6.
+8. **ASSUMPTION / confidence note, better-grounded than TikTok's:** Amazon's docs portal
+   (`developer-docs.amazon.com`) also returned HTTP 403 from this sandbox (see
+   Landmines), but the `getOrders`/`getOrderItems` field names (`AmazonOrderId`,
+   `SellerSKU`, etc.) were verified against Amazon's own `selling-partner-api-models`
+   GitHub repo — a first-party, machine-readable schema source, not a secondary
+   description — and the LWA refresh flow + the SigV4 deprecation were each confirmed via
+   multiple independent sources. Still UNVERIFIED end-to-end against a live seller
+   account (needs the client's production refresh token), but on firmer footing than
+   Phase 6's TikTok ASSUMPTIONs.
+
+**eBay integration (built, Phase 8):** fourth marketplace integration — back to the
+OAuth-redirect shape (Phase 5/6's template), not Amazon's self-authorization, plus one
+mandatory piece none of the first three platforms needed.
+1. **Schema** (`20260710200057_create_ebay_tokens.sql`): `ebay_tokens` mirrors
+   `shopify_tokens`/`tiktok_tokens`/`amazon_tokens`' zero-RLS shape. Stores both
+   `refresh_token`/`refresh_token_expires_at` (eBay documents ~18 months) and a cached
+   `access_token`/`access_token_expires_at` pair (2-hour lifetime) — same caching
+   need as Amazon's LWA token, different OAuth model to get there.
+   `platform_orders` needed no schema change — its `platform` enum already accepted
+   `'ebay'` since Phase 4.
+2. **eBay's OAuth is the authorization-code-grant redirect flow**, same shape as
+   Shopify/TikTok's install/callback pair — but with one eBay-specific quirk: the
+   `redirect_uri` parameter passed to `/oauth2/authorize` and to the token-exchange
+   call must be a "RuName", an identifier eBay assigns per registered app in the
+   Developer Portal (which itself maps to accept/decline URLs configured there), not
+   a literal callback URL the way Shopify's `WORKER_URL`-based redirect_uri is. See
+   `worker/src/ebay/env.ts`'s `EBAY_RU_NAME` and `client.ts`'s `buildAuthorizeUrl`.
+3. **Worker service layer** (`worker/src/ebay/`): same file shape as every prior
+   platform (`client.ts`/`supabaseAdmin.ts`/`sync.ts`/`handlers.ts`/`env.ts`/
+   `types.ts`), importing the shared `hmac.ts`/`oauthState.ts` primitives. `sync.ts`'s
+   `ensureAccessToken` reuses Amazon's 60-second-skew caching pattern verbatim (both
+   tokens are short-lived enough to need it, unlike Shopify's non-expiring token).
+   eBay's Fulfillment API returns line items inline on the order object (like
+   Shopify/TikTok, unlike Amazon), so no per-order fan-out call is needed here.
+4. **Mandatory Marketplace Account Deletion notification endpoint** — a genuinely new
+   requirement, not present in any prior platform. eBay requires every app that
+   stores eBay user data to subscribe to and correctly answer a challenge/
+   verification handshake before the subscription is accepted (`GET` with a
+   `challenge_code` query param → respond `{"challengeResponse":
+   sha256hex(challengeCode + verificationToken + endpoint)}`), and to acknowledge
+   every subsequent notification with 200 — non-compliance risks Developer Program
+   access termination, independent of whether the app has an order webhook at all.
+   Built as `GET`/`POST /webhooks/ebay/account-deletion`
+   (`handleDeletionChallenge`/`handleDeletionNotification` in
+   `worker/src/ebay/handlers.ts`), using `crypto.subtle.digest` (Web Crypto, native
+   in the Workers runtime) for the SHA-256 hash — no HMAC involved, distinct from
+   every other signature primitive in this repo. **Scope note / ASSUMPTION:** this
+   app has no column correlating an eBay userId/username (the identifiers in the
+   notification payload) back to a `brand_id` — `ebay_tokens` is keyed by our own
+   `brand_id`, not eBay's user identity — so `handleDeletionNotification`
+   acknowledges every notification but does not yet perform per-brand token
+   revocation from the payload alone. Revisit if this becomes a real compliance gap
+   (would need capturing the eBay username at connect-time to make the correlation
+   possible).
+5. **No order webhook** (distinct from the deletion-notification endpoint above,
+   which is mandatory regardless) — deferred to Phase 10 same as every platform
+   before it; manual `/ebay/sync` only for now.
+6. **Deviated from MSW**, same as every marketplace phase before this one: every
+   network-calling function takes an injected `fetchImpl`. 44 new worker tests (192
+   total in the worker, 234 across app+worker).
+7. **Routes**: `GET /ebay/status`, `POST /ebay/install`, `GET /ebay/callback`,
+   `POST /ebay/sync`, `GET`/`POST /webhooks/ebay/account-deletion` — dispatched from
+   the same `worker/src/index.ts`, whose `Env` type now extends `ShopifyWorkerEnv`,
+   `TiktokWorkerEnv`, `AmazonWorkerEnv`, and `EbayWorkerEnv`.
+8. **Frontend:** `/brand/ebay` (`EbayConnectPage` — redirect-flow connect button, no
+   shop-identifier form, same shape as `TiktokConnectPage` since eBay's authorize URL
+   has no shop-domain parameter either), `/brand/ebay/orders` (`EbayOrdersPage`,
+   built with the `.eq('platform', 'ebay')` filter from the start, same discipline as
+   Phase 7's Amazon page).
+9. **ASSUMPTION / confidence note:** eBay's own docs portal (`developer.ebay.com`)
+   also returned HTTP 403 from this sandbox when fetched directly via `WebFetch` —
+   same class of block as TikTok's and Amazon's docs sites (see Landmines). Unlike
+   TikTok's purely-secondary-source posture, though, `WebSearch`'s result synthesis
+   here quoted `developer.ebay.com`'s own page content directly (the exact
+   request/response field names, the RuName mechanic, the account-deletion
+   challenge-hash algorithm) rather than paraphrasing a third-party description of
+   the same spec — a first-party *source*, though still not a first-party *fetch*.
+   Every code path is unit-tested against this documented format; UNVERIFIED
+   end-to-end against a live eBay sandbox/production app (needs the client's
+   re-registered developer.ebay.com account, per ROADMAP.md's blocker note).
+
+**Walmart integration (built, Phase 9):** fifth and final marketplace integration
+for this repo's initial scope — a third, genuinely distinct auth model, not a
+reuse of Phase 5/6/8's OAuth-redirect shape or Phase 7's refresh-token
+self-authorization shape.
+1. **Schema** (`20260710201726_create_walmart_tokens.sql`): `walmart_tokens`
+   mirrors `shopify_tokens`/`tiktok_tokens`/`amazon_tokens`/`ebay_tokens`'
+   zero-RLS shape, but stores `client_id`/`client_secret` (brand-submitted,
+   both durable — see below) rather than a `refresh_token`, plus a cached
+   `access_token`/`access_token_expires_at` pair (15-minute lifetime — the
+   shortest of any platform here). `platform_orders` needed no schema
+   change — its `platform` enum already accepted `'walmart'` since Phase 4.
+2. **Walmart's Marketplace API is an OAuth client-credentials grant** — no
+   browser redirect (like Amazon's self-authorization), but unlike Amazon
+   there is no long-lived `refresh_token` at all. A Walmart seller generates
+   their own per-account Client ID + Client Secret directly in Walmart Seller
+   Center and hands both to the brand, who submits them through
+   `WalmartConnectPage` — same self-authorization trust model as Amazon's
+   brand-submitted refresh token, but the credential shape and the mint
+   mechanism (a fresh access token straight from client_id+client_secret
+   every time, no refresh step) are both different.
+3. **The Worker holds zero app-level Walmart secret** — a first in this
+   repo. Every platform before this one needed at least one shared app-level
+   credential in the Worker's own env (Shopify/TikTok/eBay's OAuth client
+   id+secret used to sign state/verify callbacks, Amazon's LWA client
+   id+secret used to refresh a token) *in addition to* whatever the brand
+   submitted. Walmart's client-credentials grant needs only the
+   brand-submitted `client_id`/`client_secret` — `WalmartWorkerEnv` is just
+   `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`, nothing platform-specific at
+   all (see `worker/src/walmart/env.ts`).
+4. **Worker service layer** (`worker/src/walmart/`): same file shape as
+   every prior platform (`client.ts`/`supabaseAdmin.ts`/`sync.ts`/
+   `handlers.ts`/`env.ts`/`types.ts`). `sync.ts`'s `ensureAccessToken` reuses
+   the same 60-second-skew caching pattern Amazon introduced and eBay
+   reused — more valuable here than anywhere else, since Walmart's
+   15-minute token is the shortest-lived of any platform in this repo.
+   Walmart's Orders API returns order lines inline on the order object
+   (like Shopify/TikTok/eBay, unlike Amazon), so no per-order fan-out call
+   is needed.
+5. **No install/callback pair** (no OAuth redirect flow exists for this
+   auth model, same as Amazon) **and no order webhook** (Walmart's real
+   notification/webhook system needs a separate subscription setup —
+   deferred to Phase 10 same as every platform before it) — three routes
+   total (`GET /walmart/status`, `POST /walmart/connect`,
+   `POST /walmart/sync`), same count as Amazon's.
+6. **Deviated from MSW**, same as every marketplace phase before this one:
+   every network-calling function takes an injected `fetchImpl`. 34 new
+   worker tests (226 total in the worker, 273 across app+worker), all in
+   the Workers runtime.
+7. **Frontend:** `/brand/walmart` (`WalmartConnectPage` — Client ID +
+   Client Secret paste-in form, same shape as `AmazonConnectPage`'s
+   refresh-token+marketplace-id form), `/brand/walmart/orders`
+   (`WalmartOrdersPage`, built with the `.eq('platform', 'walmart')` filter
+   from the start, same discipline as Phase 7/8's pages).
+8. **ASSUMPTION / confidence note:** Walmart's own docs portal
+   (`developer.walmart.com`) also returned HTTP 403 from this sandbox when
+   fetched directly via `WebFetch` — same class of block as every other
+   marketplace platform's docs site (see Landmines). `WebSearch`'s result
+   synthesis quoted `developer.walmart.com`'s own page content directly
+   (the token endpoint URL, the client-credentials grant shape, the
+   required `WM_*` headers, the 15-minute token lifetime, the orders
+   response's nested `list.elements.order` shape) — same
+   first-party-source-not-fetch posture as Phase 8's eBay integration.
+   Every code path is unit-tested against this documented format;
+   UNVERIFIED end-to-end against a live Walmart seller account (needs the
+   client's new US-based Walmart seller account, per ROADMAP.md's blocker
+   note).
+
+**All five marketplace integrations for this repo's initial scope are now
+built** (Shopify, TikTok, Amazon, eBay, Walmart — Phases 5-9), covering all
+three auth-model shapes encountered: OAuth-redirect (Shopify/TikTok/eBay),
+refresh-token self-authorization (Amazon), and client-credentials
+self-authorization (Walmart).
+
+**Order Sync Automation (built, Phase 10):** replaces "manual sync button only" with
+real background sync across every connected platform — the first time this repo's
+Worker exports a `scheduled()` handler, not just `fetch()`.
+1. **Schema** (`20260710221040_create_sync_logs.sql`): `sync_logs` records one row per
+   platform per scheduled run (`platform`, `started_at`, `finished_at`,
+   `success_count`, `failure_count`, `error_message`) — created when a platform's run
+   starts, updated when it finishes. RLS enabled with **zero policies**, same
+   defense-in-depth default as every `*_tokens` table — an explicit **ASSUMPTION**,
+   since unlike the tokens tables nothing in `sync_logs` is actually secret; kept
+   zero-policy for consistency with every other Worker-written table rather than
+   inventing a new access shape ahead of Phase 12's "admin oversight" decision, which is
+   where this table's real read path belongs. `error_message` holds only the *last*
+   error hit during a platform's run, not a full per-brand audit trail (ASSUMPTION,
+   simplest option given no UI consumes this yet).
+2. **`worker/src/shared/syncLogs.ts`**: `startSyncLog`/`finishSyncLog` — genuinely
+   platform-agnostic (a plain table write), so it lives in `shared/` per the Phase 6
+   convention rather than being duplicated five times.
+3. **Per-platform additions** (`shopify`/`tiktok`/`amazon`/`ebay`/`walmart`): each
+   `supabaseAdmin.ts` gained `listXTokens()` (every connected brand, no owner filter —
+   service-role bypasses RLS) and each `sync.ts` gained `syncAllXBrands()` — loops every
+   connected brand through that platform's existing per-brand `syncXOrders`/
+   `ensureAccessToken` (the exact same recipe `handleSync` already used for one bearer-
+   authenticated brand), catching each brand's failure individually rather than letting
+   one broken brand (revoked token, expired refresh token) abort the rest of that
+   platform's run. This is the same shape across all five platforms specifically
+   *because* Phase 6-9 already converged on identical per-brand sync signatures — Phase
+   10 needed no new per-platform abstraction, just a loop over what already existed.
+4. **`worker/src/scheduledSync.ts`**: `runScheduledSync(env, fetchImpl)` — the
+   orchestration entry point, kept as its own module rather than inlined in
+   `index.ts` so it stays testable via the repo's established injected-`fetchImpl`
+   convention (index.ts's own `scheduled()` export is a one-line dispatch, mirroring
+   how `fetch()` dispatches to each platform's `handlers.ts` rather than containing
+   logic itself). Runs all five platforms **concurrently** (`Promise.all`), each
+   independently wrapped in its own `startSyncLog`/`finishSyncLog` pair — a whole
+   platform crashing outright (e.g. `listXTokens` itself throwing on a DB outage) still
+   gets its own finished `sync_logs` row (`error_message` set, 0/0 counts) and does not
+   prevent the other four platforms from running or logging.
+5. **Idempotency** (ROADMAP's explicit ask) was already satisfied by Phase 5's own
+   design, not something Phase 10 had to add: every `upsertPlatformOrder` across all
+   five platforms already upserts on `(platform, platform_order_id)`, so a rerun (cron
+   firing again, or a brand's manual sync overlapping a scheduled one) never creates a
+   duplicate `platform_orders` row.
+6. **`wrangler.toml`**: `[triggers] crons = ["*/15 * * * *"]` — every 15 minutes.
+   **ASSUMPTION:** a reasonable default given no stated SLA on sync freshness anywhere
+   in ROADMAP.md; trivial to tighten or loosen later, and every platform currently
+   shares this one cadence (no per-platform schedule).
+7. **Worker tests:** `scheduledSync.test.ts` covers the orchestration logic directly
+   (injected `fetchImpl`, same convention as every platform) — all-platforms-succeed,
+   and one-platform-crashes-entirely-so-the-other-four-still-log. `index.test.ts`
+   additionally exercises the *real* exported `scheduled()` handler through the
+   Workers runtime via `createScheduledController`/`createExecutionContext`/
+   `waitOnExecutionContext` (`@cloudflare/vitest-pool-workers` covers `scheduled()`
+   test dispatch as a separate mechanism from `SELF.fetch()`) — since `scheduled()`'s
+   signature is fixed by `ExportedHandler` and takes no injectable `fetchImpl` param,
+   this one test stubs `globalThis.fetch` instead (restored in `afterEach`), the only
+   place in the Worker's test suite that does so rather than using the fetchImpl
+   convention, and only because the runtime entry point itself leaves no other seam.
+   34 new worker tests (263 total).
+8. **No frontend change.** Phase 10 is purely a background-sync mechanism; every
+   existing Connect/Orders page already reflects `last_synced_at`/order rows
+   regardless of whether a sync was triggered manually or by the cron, so nothing in
+   `app/` needed to change.
 
 ## Stack rules
 
@@ -295,9 +585,23 @@ marketplace integrations (Amazon, eBay, Walmart) — Phase 5/6 are their templat
   `text-ink`, `border-hairline`, etc.) — never hand-write a `slate-*`/`red-*`/`green-*` Tailwind
   class in a page; go through the tokens. Shared primitives live in `app/src/components/ui/`
   (`Button`, `Card`, `TextField`, `SelectField`, `StatusBadge`, `ListRow`, `EmptyState`,
-  `ErrorText`) — pages compose these, they don't hand-roll form/button markup. Dark is the
-  `@theme` default (`prefers-color-scheme: dark`); light overrides via a
-  `prefers-color-scheme: light` media query on the same CSS variables — no manual toggle exists.
+  `ErrorText`, plus shell-only `Avatar`, `DropdownMenu`, `Sheet`, `Separator`) — pages compose
+  these, they don't hand-roll form/button markup. Dark is the `@theme` default
+  (`prefers-color-scheme: dark`); light overrides via a `prefers-color-scheme: light` media
+  query on the same CSS variables — no manual toggle exists.
+- **`components/ui/*` is built on Radix UI primitives + `class-variance-authority`** (the
+  shadcn/ui structural pattern), adopted after Phase 9 once every page was still a flat stack
+  of full-width link buttons with no persistent nav chrome. Every primitive kept its existing
+  public prop API (`variant`, `tone`, `label`, plain children) unchanged, so this was a
+  `components/ui/*` + `DashboardShell.tsx`-only rewrite — no page file needed to change to pick
+  up the new look. `DashboardShell` is now a real app shell: a role-aware sidebar (grouped nav
+  — Catalog/Fulfillment/Marketplaces for brand, flat list for provider, single item for admin)
+  with active-route highlighting, a footer user menu (`DropdownMenu` + `Avatar` initials +
+  sign-out), and a `Sheet` (Radix `Dialog`)-based slide-in drawer for the same nav below `md:`.
+  Deliberately **not** adopted: shadcn's own `--background`/`--foreground`/`--popover` color
+  convention — every Radix-backed primitive still reads FBP's own token names, to avoid a
+  second parallel color system. Also deliberately **not** converted: `SelectField` stays a
+  styled native `<select>`, not Radix's `Select` — see the Landmine below.
 
 ### Supabase
 - **Every schema change is a migration** in `supabase/migrations/` (`pnpm db:new <name>`).
@@ -338,18 +642,42 @@ marketplace integrations (Amazon, eBay, Walmart) — Phase 5/6 are their templat
   starting assumption, but MSW's Node-network-layer interception has no defined relationship
   to workerd's native `fetch`, and this dependency-injection boundary sidesteps the question
   entirely with no new dependency. Confirmed again in Phase 6's `worker/src/tiktok/` (49
-  more tests, same shape) — use this pattern for Phases 7-9's Amazon/eBay/Walmart
-  integrations too, rather than reaching for MSW in the Worker.
-- **Shared vs. per-platform Worker code (decided in Phase 6):** `worker/src/shared/`
-  holds primitives with no platform-specific logic (`hmac.ts`, `oauthState.ts` — moved
-  out of `shopify/` in Phase 6 once TikTok needed the exact same ones, see above).
-  Platform-specific modules (`client.ts`, `supabaseAdmin.ts`, `sync.ts`, `handlers.ts`,
-  `env.ts`, `types.ts`) stay duplicated one directory per platform rather than
-  abstracted behind a shared interface — each platform's wire format, auth flow, and
-  table shape differ enough (see Phase 6's TikTok-vs-Shopify differences write-up above)
-  that a shared abstraction would be premature after only two platforms. Revisit once
-  Phase 7-9 make the actual overlap/divergence pattern clear across four platforms
-  instead of guessing from two.
+  more tests), Phase 7's `worker/src/amazon/` (37 more tests), Phase 8's
+  `worker/src/ebay/` (44 more tests), and Phase 9's `worker/src/walmart/` (34 more
+  tests, 226 total in the worker, 273 across app+worker) — this pattern has now
+  covered every auth-model shape this repo's marketplace integrations use; no
+  future platform integration should reach for MSW in the Worker either. Phase 10's
+  `scheduledSync.ts`/`syncLogs.ts` (34 more tests, 263 total in the worker) reuse the
+  exact same convention — the one exception is `index.test.ts`'s new `scheduled()`
+  test, which stubs `globalThis.fetch` instead of injecting one: `scheduled()`'s
+  signature is fixed by Cloudflare's `ExportedHandler` type and takes no extra
+  parameter, so there's no injection seam at that one entry point the way every other
+  handler has.
+- **Shared vs. per-platform Worker code (decided in Phase 6, held through Phase 7-9):**
+  `worker/src/shared/` holds primitives with no platform-specific logic (`hmac.ts`,
+  `oauthState.ts` — moved out of `shopify/` in Phase 6 once TikTok needed the exact same
+  ones, see above). Platform-specific modules (`client.ts`, `supabaseAdmin.ts`,
+  `sync.ts`, `handlers.ts`, `env.ts`, `types.ts`) stay duplicated one directory per
+  platform rather than abstracted behind a shared interface — Phase 7 made this the
+  obviously correct call, not just a two-platform guess: Amazon's auth model
+  (self-authorization, no OAuth redirect, no request signing, no webhook) differs from
+  Shopify/TikTok's so fundamentally that even `oauthState.ts` doesn't apply to it. Phase
+  8's eBay integration is a second data point in the *other* direction: it shares
+  Shopify/TikTok's OAuth-redirect shape closely enough to reuse `oauthState.ts` and the
+  same `ensureAccessToken`-with-skew caching idea Amazon introduced — but it still isn't
+  worth extracting a shared interface, since eBay's RuName-instead-of-redirect_uri
+  quirk and its mandatory account-deletion endpoint (a requirement no other platform
+  has at all) are each real, platform-specific enough to make a generalized abstraction
+  leaky rather than clean. Phase 9's Walmart integration is a third data point
+  confirming the "reuse patterns, duplicate modules" call: it reuses the
+  `ensureAccessToken`-with-skew *idea* yet again, but its auth model (client-credentials,
+  no refresh_token, no app-level Worker secret at all) is different enough from both
+  Shopify/TikTok/eBay's redirect flow and Amazon's refresh-token flow that no single
+  shared interface could express all three cleanly. With five platforms and three
+  distinct auth-model shapes now built, this decision is considered settled for this
+  repo's remaining marketplace work, not just provisional. The `fetchImpl`-injection
+  and `ensureAccessToken`-shape *patterns* travel between platforms; the modules that
+  use them stay duplicated.
 
 ## Environment & secrets
 
@@ -368,9 +696,21 @@ marketplace integrations (Amazon, eBay, Walmart) — Phase 5/6 are their templat
     `WORKER_URL` (the Worker's own URL, used as the Shopify OAuth `redirect_uri` — TikTok has
     no equivalent var, see Phase 6 write-up), `TIKTOK_APP_KEY`, `TIKTOK_APP_SECRET` (also signs
     the OAuth install-state token and, per the Phase 6 ASSUMPTION notes, request/webhook
-    signatures)
-  - More will be added per marketplace integration (Amazon/eBay/Walmart client IDs and
-    secrets) — each addition updates this list and the relevant `.example` file.
+    signatures), `AMAZON_CLIENT_ID`, `AMAZON_CLIENT_SECRET` (LWA app credentials, used only
+    to refresh a brand-submitted refresh token into a short-lived access token — no
+    APP_URL/WORKER_URL equivalent either, since Amazon's self-authorization model has no
+    OAuth redirect flow at all, see Phase 7 write-up), `EBAY_CLIENT_ID`,
+    `EBAY_CLIENT_SECRET` (also signs the OAuth install-state token, reusing
+    `shared/oauthState.ts`), `EBAY_RU_NAME` (eBay's assigned redirect identifier, used
+    in place of a literal `redirect_uri` — see Phase 8 write-up), `EBAY_VERIFICATION_TOKEN`
+    (for the mandatory marketplace-account-deletion endpoint's challenge hash; reuses the
+    existing `APP_URL`/`WORKER_URL` bindings otherwise). **Walmart (Phase 9) needs no new
+    var at all** — its client-credentials grant uses only the brand-submitted
+    `client_id`/`client_secret` stored in `walmart_tokens`, entered via
+    `WalmartConnectPage`; see Phase 9 write-up.
+  - This completes every marketplace integration in this repo's initial scope
+    (Shopify/TikTok/Amazon/eBay/Walmart, Phases 5-9). Future marketplace additions
+    (if any) would extend this list the same way each phase above did.
 
 ## Definition of Done
 
@@ -485,6 +825,120 @@ A change is done when **all** are true:
   comments against the first-party spec before any live TikTok credential is wired up —
   don't assume the unit tests passing means the wire format is correct, only that the
   code is internally consistent with itself.
+- **Amazon's SP-API docs portal (`developer-docs.amazon.com`) also returned HTTP 403**
+  when fetched directly via `WebFetch` from this sandbox, same failure mode as TikTok's
+  docs site above. Unlike TikTok, though, a first-party fallback existed: Amazon
+  publishes its API schemas as machine-readable JSON in the public
+  `amzn/selling-partner-api-models` GitHub repo, and `raw.githubusercontent.com` was
+  fetchable — so `worker/src/amazon/types.ts`'s field names (`AmazonOrderId`,
+  `SellerSKU`, etc.) come from that first-party schema, not a secondary description.
+  The LWA refresh-token flow and the Oct 2023 SigV4-deprecation changelog were each
+  confirmed via multiple independent secondary sources (the changelog page itself also
+  403'd). Net effect: Phase 7's Amazon integration rests on firmer evidence than Phase
+  6's TikTok integration, but is still UNVERIFIED end-to-end against a live seller
+  account — same posture, better grounding. If a docs-portal fetch ever works from a
+  future session, reconcile the LWA/SigV4 claims against the first-party page before any
+  live Amazon credential is wired up.
+- **eBay's docs portal (`developer.ebay.com`) also returned HTTP 403** when fetched
+  directly via `WebFetch` from this sandbox — same failure mode as TikTok's and
+  Amazon's docs sites above. The fallback here was a third kind, distinct from both
+  prior ones: `WebSearch`'s result synthesis quoted `developer.ebay.com`'s own page
+  content directly (exact request/response field names, the RuName redirect-uri
+  mechanic, the account-deletion challenge-hash algorithm) rather than either (a) a
+  first-party machine-readable schema fetched from elsewhere (Amazon's GitHub-repo
+  fallback) or (b) purely third-party paraphrase of the same spec (TikTok's posture).
+  Treated this as firmer than TikTok's grounding but still short of an actual fetched
+  page, so every eBay code path is flagged the same ASSUMPTION-grade way as TikTok's
+  and Amazon's (`worker/src/ebay/client.ts`, `types.ts`) pending live verification. If
+  a docs-portal fetch ever succeeds from a future session, reconcile the OAuth
+  request/response shapes and the challenge-hash algorithm against the first-party
+  page before any live eBay credential is wired up.
+- **eBay requires a compliance endpoint no other platform in this repo needed**: the
+  Marketplace Account Deletion notification subscription (see the Phase 8 write-up
+  above). This is easy to miss because it isn't an order webhook and isn't optional —
+  eBay's Developer Program can restrict API access for an app that stores eBay user
+  data without a working, correctly-hashed challenge-response endpoint. The tell for
+  next time: check a marketplace's compliance/GDPR-notification requirements
+  separately from its order-sync webhook requirements — the two are easy to conflate
+  but are answered by completely different parts of a platform's docs.
+- **Walmart's docs portal (`developer.walmart.com`) also returned HTTP 403** when
+  fetched directly via `WebFetch` from this sandbox — same failure mode as every
+  other marketplace platform's docs site above. Same fallback class as Phase 8's
+  eBay integration: `WebSearch`'s result synthesis quoted `developer.walmart.com`'s
+  own page content directly (the token endpoint, the client-credentials grant
+  shape, the required `WM_*` headers, the 15-minute token lifetime, the orders
+  response's nested shape) rather than third-party paraphrase. Flagged the same
+  ASSUMPTION-grade way in `worker/src/walmart/client.ts`/`types.ts`, pending live
+  verification against a real Walmart seller account.
+- **Walmart's auth model doesn't fit either existing template** — worth noting
+  explicitly since by Phase 9, two templates (OAuth-redirect from Shopify/TikTok/
+  eBay, refresh-token self-authorization from Amazon) already existed and it would
+  have been easy to force-fit Walmart into the closer-looking one (Amazon's, since
+  neither has a browser redirect). It doesn't: Walmart's client-credentials grant
+  has no refresh_token concept at all — client_id/client_secret themselves are
+  reused on every access-token mint, not exchanged once for a longer-lived
+  refresh_token the way Amazon's flow works. The tell for next time: "no OAuth
+  redirect" is not the same shape every time — check whether a durable long-lived
+  token exists at all before assuming a template fits, don't just pattern-match on
+  the absence of a browser redirect step.
+- **Radix `Select` would have broken every `SelectField` test on adoption.** Went
+  in planning to convert `SelectField` (`InventoryPage`, `SkuMappingsPage`) to
+  Radix's `Select` primitive as part of the shadcn/Radix rewrite of
+  `components/ui/*`. Checked the existing tests first (`InventoryPage.test.tsx`)
+  and found them driving it via `userEvent.selectOptions(screen.getByLabelText(...),
+  'value')` — that API dispatches a native `<select>` change event and only works
+  against a real `<select>` element; Radix's `Select` renders a custom trigger
+  button + portaled listbox with no native `<select>` in the DOM at all, so every
+  existing test would have needed rewriting to click-then-click-an-item instead.
+  Kept `SelectField` as a styled native `<select>` (chevron icon via
+  `lucide-react`, same focus-ring treatment as `TextField`) instead — real shadcn
+  value (Radix `Select`) sacrificed for zero test churn and zero risk of subtly
+  changing keyboard/screen-reader behavior pages already depended on. The tell for
+  next time: before swapping a primitive's underlying implementation, grep its
+  existing tests for how they interact with it — a component's *test-facing* API
+  can be a hard constraint even when its *visual* API has room to change.
+- **Adding `NavLink` to `DashboardShell` broke all 18 page-level component tests
+  that render a page directly** (`ProductsPage.test.tsx` et al.) — `NavLink` calls
+  `useLocation()` internally, which throws "may be used only in the context of a
+  `<Router>`" outside one. Every one of those tests renders its page wrapped only
+  in `<AuthContext.Provider>`, with no router, because `DashboardShell` previously
+  had no router dependency at all (just a sign-out button). Fixed by wrapping each
+  test's `renderWithAuth()` in `<MemoryRouter>`. The tell for next time: adding
+  *any* `react-router` hook/component to a shared shell component is a foundation-
+  level change that can break every page test that renders through it, even tests
+  that have nothing to do with navigation — grep for the shell's usages before
+  assuming a shell-only change is isolated to the shell.
+- **Moving `pages/*.tsx` into `pages/{brand,provider,admin}/` broke every test
+  that used `vi.mock('../lib/...')`, silently, not with a type error.**
+  Bumping `import ... from '../lib/x'` to `'../../lib/x'` after a file moves
+  one directory deeper is the obvious half of the fix; `vi.mock('../lib/x', ...)`
+  calls are a separate string literal Vitest resolves independently of any
+  `import` statement, so a sed pass targeting `from '../` left every
+  `vi.mock('../lib/...')` pointing at a now-nonexistent path. The failure mode
+  wasn't a red build — `tsc`/`oxlint` both passed, since `vi.mock`'s argument
+  is just a string, not a typechecked import — it only surfaced at test run
+  as `vi.mocked(supabase.from).mockReturnValueOnce is not a function`, because
+  the real (unmocked) module loaded instead. The tell for next time: after
+  moving any file with `vi.mock(<relative path>, ...)` calls, grep for
+  `vi.mock\(.*\.\./` in the moved files specifically — it's invisible to both
+  the type checker and the linter, only the test run catches it.
+- **The page reorg above was actually two rounds, not one** — first into
+  `pages/{brand,provider,admin}/` (nested one level under `pages/`), then
+  promoted again to top-level `src/{brand,provider,admin}/` plus a new
+  `src/products/` once it became clear "separate folders" meant top-level,
+  not nested, and that product catalog management should be its own
+  concern rather than folded into `brand/` even though only the brand role
+  uses it today. Both rounds needed the exact same `vi.mock`-path fix from
+  the entry above (moving one directory level changes import depth either
+  way). **Current, settled structure:** `src/brand/`, `src/provider/`,
+  `src/admin/`, `src/products/` for routed pages; `src/pages/` holds only
+  the three role-agnostic pages (`SignInPage`/`SignUpPage`/`RoleRedirect`)
+  that run before a role exists; `src/components/`, `src/hooks/`,
+  `src/lib/`, `src/types/` stay shared across every role, not duplicated
+  per folder. The tell for next time: when a reorg request uses a word
+  like "separate" or "own folder," confirm the exact directory depth and
+  scope intended before executing — a folder-structure change is cheap to
+  redo once, expensive to redo twice.
 
 ## Overrides
 

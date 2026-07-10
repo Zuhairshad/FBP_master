@@ -15,3 +15,33 @@ compatibility_flags = ["nodejs_compat"]
 # Phase 6 (TikTok Shop) additionally needs: TIKTOK_APP_KEY, TIKTOK_APP_SECRET
 # (no WORKER_URL equivalent — TikTok's OAuth redirect URI is registered in
 # the Partner Center, not passed per request; see worker/src/tiktok/client.ts).
+#
+# Phase 7 (Amazon SP-API) additionally needs: AMAZON_CLIENT_ID,
+# AMAZON_CLIENT_SECRET (the LWA app credentials used to mint short-lived
+# access tokens from a brand-submitted refresh token — no APP_URL/WORKER_URL
+# equivalent either, since there is no OAuth redirect flow at all for
+# Amazon's self-authorization model; see worker/src/amazon/handlers.ts).
+#
+# Phase 8 (eBay) additionally needs: EBAY_CLIENT_ID, EBAY_CLIENT_SECRET,
+# EBAY_RU_NAME (eBay's OAuth redirect_uri parameter must be a "RuName" it
+# assigns per registered app, not a literal URL — see worker/src/ebay/client.ts),
+# EBAY_VERIFICATION_TOKEN (for the mandatory marketplace-account-deletion
+# endpoint challenge hash — see worker/src/ebay/handlers.ts). Reuses the
+# existing APP_URL/WORKER_URL bindings.
+#
+# Phase 9 (Walmart) needs no new binding at all: Walmart's client-credentials
+# grant uses only the brand-submitted client_id/client_secret stored in
+# walmart_tokens — SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY (already present
+# above) are the only bindings worker/src/walmart/ touches; see
+# worker/src/walmart/env.ts.
+#
+# Phase 10 (Order Sync Automation) needs no new binding either — the
+# scheduled() handler (worker/src/scheduledSync.ts) reuses every existing
+# per-platform binding above to sync all connected brands on a timer instead
+# of only via each platform's manual "sync now" button.
+
+[triggers]
+# Every 15 minutes (ASSUMPTION: a reasonable default given no stated SLA on
+# sync freshness; cheap to tighten or loosen later — this is the only
+# cron entry, so every platform currently syncs on the same cadence).
+crons = ["*/15 * * * *"]

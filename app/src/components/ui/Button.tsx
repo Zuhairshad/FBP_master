@@ -1,29 +1,37 @@
 import type { ButtonHTMLAttributes } from 'react'
+import { Slot } from '@radix-ui/react-slot'
+import { cva, type VariantProps } from 'class-variance-authority'
+import { cn } from '../../lib/utils'
 
-type ButtonVariant = 'primary' | 'secondary' | 'tertiary' | 'danger'
+const buttonVariants = cva(
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0',
+  {
+    variants: {
+      variant: {
+        primary: 'bg-primary text-on-primary hover:bg-primary-hover',
+        secondary: 'border border-hairline bg-surface-1 text-ink hover:bg-surface-2',
+        tertiary: 'bg-canvas text-ink hover:bg-surface-2',
+        danger: 'border border-error/40 bg-surface-1 text-error hover:bg-error/10',
+      },
+      size: {
+        default: 'h-9 px-3.5 py-2',
+        sm: 'h-7 px-2.5 text-xs',
+      },
+    },
+    defaultVariants: {
+      variant: 'primary',
+      size: 'default',
+    },
+  },
+)
 
-// Not in the source design brief (a marketing page has no destructive
-// actions) — same category of extension as the `error` semantic color in
-// DESIGN.md. Its own variant, not a className override on `secondary`,
-// because Tailwind's generated stylesheet order — not DOM class order —
-// decides which same-property utility wins, so stacking a border/text color
-// override on top of a variant's own border/text color is unreliable.
-const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: 'bg-primary text-on-primary hover:bg-primary-hover',
-  secondary: 'bg-surface-1 text-ink border border-hairline',
-  tertiary: 'bg-canvas text-ink',
-  danger: 'bg-surface-1 text-error border border-error/40',
+interface ButtonProps
+  extends ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  asChild?: boolean
 }
 
-export function Button({
-  variant = 'primary',
-  className = '',
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
-  return (
-    <button
-      {...props}
-      className={`rounded-md px-3.5 py-2 text-sm font-medium disabled:opacity-50 ${VARIANT_CLASSES[variant]} ${className}`}
-    />
-  )
+export function Button({ variant, size, className, asChild = false, ...props }: ButtonProps) {
+  const Comp = asChild ? Slot : 'button'
+  return <Comp className={cn(buttonVariants({ variant, size }), className)} {...props} />
 }
