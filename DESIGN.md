@@ -18,6 +18,24 @@ auth-gated **dashboard** app, not a marketing site, so this adaptation:
   the source's "one chromatic accent" spirit: `error` and `success` are the only
   two non-neutral colors anywhere in the system.
 
+**Component architecture (adopted after the first round of pages shipped):** the
+first pass at every page (Phases 1-9) rendered as a flat vertical stack of
+full-width link buttons with no persistent chrome — functional, but it didn't
+read as a dashboard app. `components/ui/*` is now built on **Radix UI primitives +
+class-variance-authority** (the same structural pattern shadcn/ui uses) instead of
+plain hand-rolled `<div>`/`<button>` markup — real focus-trapping/ARIA behavior for
+the sidebar's mobile drawer and user menu, and a `cva()`-driven variant system
+instead of string-concatenated Tailwind classes. **Deliberately not adopted:**
+shadcn's own default color-variable convention (`--background`/`--foreground`/
+`--popover`, etc.) — every Radix-backed component still reads FBP's own token
+names (`bg-canvas`, `text-ink`, `border-hairline`, `bg-surface-2`, ...) rather than
+introducing a second, parallel color-variable system that would need to be kept
+in sync with the one already documented below. Same reasoning for `SelectField`:
+it stays a styled **native** `<select>` rather than Radix's `Select` primitive,
+because the existing test suite drives it via `userEvent.selectOptions` (which
+only works against a real `<select>` element, not Radix's custom listbox) — see
+the Landmines entry in `CLAUDE.md` for the full tradeoff.
+
 ## Colors
 
 Both themes share the same relationships: `canvas` is the base, surfaces lift
@@ -156,17 +174,33 @@ which source concept it's extrapolated from.
   Status-specific tint (e.g. `resolved`→success, `unmapped`→error-adjacent) overrides
   text color only, never the pill's bg — keeps the neutral-pill-with-tinted-text
   pattern already used for booking/order status labels.
-- **`page-header`** — **extrapolated**, not in the source (marketing pages don't have
-  a persistent app-shell heading). Bg `{colors.canvas}`, bottom 1px `{colors.hairline}`,
-  title `{typography.display-md}` + `{colors.ink}`, height 56px — same height/bg as the
-  source's `top-nav`, since FBP's `DashboardShell` header plays the same structural
-  role (sticky top bar) with dashboard-specific content (page title + sign out) instead
-  of marketing nav links.
-- **`empty-state`** — **extrapolated.** Text `{colors.ink-subtle}`, `{typography.body-sm}`.
-  Every list page already has an "nothing here yet" message; this just standardizes its
-  color/type instead of introducing new structure.
-- **`error-text`** — text `{colors.error}`, `{typography.body-sm}`. Extension beyond the
-  source (see Colors section).
+- **`app-shell`** — **extrapolated, and the biggest structural addition beyond the
+  source.** A marketing page has no persistent navigation chrome; a dashboard
+  categorically does. `DashboardShell` (`app/src/components/DashboardShell.tsx`)
+  is a fixed-width (`w-64`) `bg-surface-1` sidebar + `bg-canvas` top bar, replacing
+  the earlier flat stack-of-link-buttons layout entirely: role-aware nav groups
+  (brand/provider/admin each see a different, section-labeled nav tree — Catalog /
+  Fulfillment / Marketplaces for brand, a flat list for provider, a single item for
+  admin), active-route highlighting via `NavLink`, and a footer user menu (avatar +
+  name/role + a `DropdownMenu` for sign-out). Below `md:`, the sidebar becomes a
+  `Sheet` (Radix `Dialog`)-based slide-in drawer triggered by a hamburger button in
+  the top bar, rather than disappearing — every nav item stays reachable on mobile.
+- **`avatar`** — `bg-surface-3` circular fallback showing initials (no avatar
+  images anywhere in this app's data model, so `AvatarFallback` is the only variant
+  used). Radix `react-avatar`, same token pattern as every other surface.
+- **`dropdown-menu`** / **`sheet`** — Radix `react-dropdown-menu` / `react-dialog`
+  under the hood; menu surfaces use `{colors.surface-2}` (one step up from `card`'s
+  `surface-1`, matching the "popovers sit above cards" elevation convention
+  already implied by the surface ladder), the sheet panel uses `{colors.surface-1}`
+  like `card`.
+- **`empty-state`** — **extrapolated**, and upgraded alongside the shadcn adoption:
+  now a dashed-border `{colors.hairline}` box with a small centered icon (`lucide-react`'s
+  `Inbox`) above the `{colors.ink-subtle}` `{typography.body-sm}` text, instead of bare
+  text — every list page already has an "nothing here yet" message; this just gives
+  it a real empty-state treatment instead of a stray line of text.
+- **`error-text`** — text `{colors.error}`, `{typography.body-sm}`, now paired with a
+  small `AlertCircle` icon (`lucide-react`) for faster visual scanning. Extension
+  beyond the source (see Colors section).
 
 ## Do's and Don'ts
 
@@ -192,9 +226,16 @@ Same as the source, plus dashboard-specific additions:
   is more visually "correct" as this app's primary mode, matching the source's
   dark-only marketing site); light values override via `@media (prefers-color-scheme: light)`.
 - Shared primitives live in `app/src/components/ui/` (`Button.tsx`, `Card.tsx`,
-  `Input.tsx`, `StatusBadge.tsx`, `ListRow.tsx`, `EmptyState.tsx`) — pages compose
-  these instead of hand-rolling utility-class strings, so this system stays a system
-  instead of decaying back into ad-hoc classes the next time a page is touched.
+  `TextField.tsx`, `SelectField.tsx`, `StatusBadge.tsx`, `ListRow.tsx`,
+  `EmptyState.tsx`, `ErrorText.tsx`, plus the shell-only `Avatar.tsx`,
+  `DropdownMenu.tsx`, `Sheet.tsx`, `Separator.tsx`) — pages compose these instead
+  of hand-rolling utility-class strings, so this system stays a system instead of
+  decaying back into ad-hoc classes the next time a page is touched. Every
+  primitive's public prop API (`label`, `variant`, `tone`, plain children) was kept
+  identical across the shadcn/Radix rewrite, so no page file needed to change to
+  pick up the new look — only `components/ui/*` and `DashboardShell.tsx` did.
+  `app/src/lib/utils.ts` exports the `cn()` helper (`clsx` + `tailwind-merge`) every
+  primitive uses to merge its own classes with a caller-supplied `className`.
 - **No webfont CDN.** Went in planning to load Inter/JetBrains Mono via a Google Fonts
   `<link>`; reverted after it failed in this sandbox's network-restricted environment
   (`ERR_CONNECTION_RESET` — the sandbox's proxy blocks it, confirmed via Eyes). Rather

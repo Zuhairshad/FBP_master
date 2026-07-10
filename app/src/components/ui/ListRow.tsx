@@ -1,9 +1,14 @@
-import type { ReactNode } from 'react'
+import type { HTMLAttributes } from 'react'
+import { cn } from '../../lib/utils'
 
-export function ListRow({ children, className = '' }: { children: ReactNode; className?: string }) {
+export function ListRow({ className, ...props }: HTMLAttributes<HTMLLIElement>) {
   return (
-    <li className={`flex items-center justify-between rounded-md border border-hairline bg-surface-1 px-4 py-3 text-sm ${className}`}>
-      {children}
-    </li>
+    <li
+      className={cn(
+        'flex items-center justify-between gap-4 rounded-lg border border-hairline bg-surface-1 px-4 py-3 text-sm transition-colors hover:bg-surface-2',
+        className,
+      )}
+      {...props}
+    />
   )
 }

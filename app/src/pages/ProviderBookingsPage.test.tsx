@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router'
 import { ProviderBookingsPage } from './ProviderBookingsPage'
 import { AuthContext } from '../hooks/auth-context'
 import { supabase } from '../lib/supabase'
@@ -77,7 +78,8 @@ const space: StorageSpace = {
 
 function renderWithAuth() {
   return render(
-    <AuthContext.Provider
+    <MemoryRouter>
+      <AuthContext.Provider
       value={{
         session: null,
         loading: false,
@@ -91,7 +93,8 @@ function renderWithAuth() {
       }}
     >
       <ProviderBookingsPage />
-    </AuthContext.Provider>,
+      </AuthContext.Provider>
+    </MemoryRouter>,
   )
 }
 

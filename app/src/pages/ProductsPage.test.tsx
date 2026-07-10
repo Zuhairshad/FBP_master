@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router'
 import { ProductsPage } from './ProductsPage'
 import { AuthContext } from '../hooks/auth-context'
 import { supabase } from '../lib/supabase'
@@ -41,7 +42,8 @@ function makeBuilder(result: QueryResult): MockQueryBuilder {
 
 function renderWithAuth() {
   return render(
-    <AuthContext.Provider
+    <MemoryRouter>
+      <AuthContext.Provider
       value={{
         session: null,
         loading: false,
@@ -55,7 +57,8 @@ function renderWithAuth() {
       }}
     >
       <ProductsPage />
-    </AuthContext.Provider>,
+      </AuthContext.Provider>
+    </MemoryRouter>,
   )
 }
 

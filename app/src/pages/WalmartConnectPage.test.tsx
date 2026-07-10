@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router'
 import type { Session } from '@supabase/supabase-js'
 import { WalmartConnectPage } from './WalmartConnectPage'
 import { AuthContext } from '../hooks/auth-context'
@@ -22,7 +23,8 @@ const fakeSession = {
 
 function renderWithAuth() {
   return render(
-    <AuthContext.Provider
+    <MemoryRouter>
+      <AuthContext.Provider
       value={{
         session: fakeSession,
         loading: false,
@@ -36,7 +38,8 @@ function renderWithAuth() {
       }}
     >
       <WalmartConnectPage />
-    </AuthContext.Provider>,
+      </AuthContext.Provider>
+    </MemoryRouter>,
   )
 }
 

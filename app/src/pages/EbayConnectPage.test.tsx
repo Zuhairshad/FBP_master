@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { Session } from '@supabase/supabase-js'
+import { MemoryRouter } from 'react-router'
 import { EbayConnectPage } from './EbayConnectPage'
 import { AuthContext } from '../hooks/auth-context'
 import { getEbayStatus, requestEbayInstallUrl, triggerEbaySync } from '../lib/worker'
@@ -22,21 +23,23 @@ const fakeSession = {
 
 function renderWithAuth() {
   return render(
-    <AuthContext.Provider
-      value={{
-        session: fakeSession,
-        loading: false,
-        profile: {
-          id: 'brand-1',
-          role: 'brand',
-          display_name: 'Brand One',
-          company_name: null,
-          created_at: '2026-01-01T00:00:00Z',
-        },
-      }}
-    >
-      <EbayConnectPage />
-    </AuthContext.Provider>,
+    <MemoryRouter>
+      <AuthContext.Provider
+        value={{
+          session: fakeSession,
+          loading: false,
+          profile: {
+            id: 'brand-1',
+            role: 'brand',
+            display_name: 'Brand One',
+            company_name: null,
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        }}
+      >
+        <EbayConnectPage />
+      </AuthContext.Provider>
+    </MemoryRouter>,
   )
 }
 

@@ -1,17 +1,29 @@
-import type { InputHTMLAttributes } from 'react'
+import { useId, type InputHTMLAttributes } from 'react'
+import * as LabelPrimitive from '@radix-ui/react-label'
+import { cn } from '../../lib/utils'
 
 export function TextField({
   label,
-  className = '',
+  id,
+  className,
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & { label: string }) {
+  const generatedId = useId()
+  const inputId = id ?? generatedId
+
   return (
-    <label className="block text-sm text-ink">
-      {label}
+    <div className="flex flex-col gap-1.5">
+      <LabelPrimitive.Root htmlFor={inputId} className="text-sm text-ink">
+        {label}
+      </LabelPrimitive.Root>
       <input
+        id={inputId}
         {...props}
-        className={`mt-1 w-full rounded-md border border-hairline bg-surface-1 px-3 py-2 text-ink outline-none focus:border-hairline-strong focus:ring-2 focus:ring-primary-focus/50 ${className}`}
+        className={cn(
+          'w-full rounded-md border border-hairline bg-surface-1 px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-tertiary focus:border-hairline-strong focus:ring-2 focus:ring-primary-focus/50',
+          className,
+        )}
       />
-    </label>
+    </div>
   )
 }
