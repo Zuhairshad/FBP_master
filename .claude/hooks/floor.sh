@@ -54,7 +54,7 @@ fi
 [ "$(json_get .stop_hook_active)" = "true" ] && exit 0
 [ -f package.json ] || exit 0
 
-OUT="$(npx --no-install tsc --noEmit 2>&1)" || fail "typecheck" "$OUT"
-OUT="$(npm run --if-present lint 2>&1)"     || fail "lint" "$OUT"
+OUT="$(npm run --if-present typecheck 2>&1)" || fail "typecheck" "$OUT"
+OUT="$(npm run --if-present lint 2>&1)"      || fail "lint" "$OUT"
 
 exit 0

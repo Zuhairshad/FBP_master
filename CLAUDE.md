@@ -151,6 +151,13 @@ A change is done when **all** are true:
 - `pnpm dlx supabase init` run from *inside* a `supabase/` directory nests a second
   `supabase/supabase/` — always run Supabase CLI commands (`init`, `migration new`, etc.) from
   the **repo root**, never from inside `supabase/`.
+- `.claude/hooks/floor.sh` (Stop-hook "turn" mode) originally hardcoded `npx tsc --noEmit` at
+  repo root. That's fine for a single-package repo but this is a pnpm workspace with no root
+  `tsconfig.json` — bare `tsc` at root found no project and dumped CLI help instead of
+  type-checking, which the hook then treated as a failure. Fixed to run `npm run --if-present
+  typecheck`, which delegates to the real `pnpm -r typecheck` in root `package.json`. If a hook
+  ever hardcodes a tool invocation instead of calling the repo's own verified script, assume it
+  will drift the moment the repo stops being a flat single-package layout.
 - New workspace deps with native/native-adjacent postinstall scripts (`workerd`, `esbuild`,
   `sharp`) get silently skipped by pnpm until approved. They're pre-approved via
   `onlyBuiltDependencies` in `pnpm-workspace.yaml` — if a fresh install ever behaves as if

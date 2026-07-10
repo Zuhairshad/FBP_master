@@ -46,7 +46,7 @@ echo "$CMD" | grep -Eq '(^|[;&|[:space:]])git[[:space:]]+commit' || exit 0
 
 fail() { echo "COMMIT BLOCKED ($1 is red). Fix, verify, then commit again:" >&2; echo "$2" | tail -50 >&2; exit 2; }
 
-OUT="$(npx --no-install tsc --noEmit 2>&1)"   || fail "typecheck" "$OUT"
+OUT="$(npm run --if-present typecheck 2>&1)"  || fail "typecheck" "$OUT"
 OUT="$(npm run --if-present lint 2>&1)"       || fail "lint" "$OUT"
 OUT="$(npm run --if-present test 2>&1)"       || fail "tests" "$OUT"
 OUT="$(npm run --if-present build 2>&1)"      || fail "build" "$OUT"
