@@ -513,9 +513,23 @@ self-authorization (Walmart). Phase 10 (Order Sync Automation) is next.
   `text-ink`, `border-hairline`, etc.) — never hand-write a `slate-*`/`red-*`/`green-*` Tailwind
   class in a page; go through the tokens. Shared primitives live in `app/src/components/ui/`
   (`Button`, `Card`, `TextField`, `SelectField`, `StatusBadge`, `ListRow`, `EmptyState`,
-  `ErrorText`) — pages compose these, they don't hand-roll form/button markup. Dark is the
-  `@theme` default (`prefers-color-scheme: dark`); light overrides via a
-  `prefers-color-scheme: light` media query on the same CSS variables — no manual toggle exists.
+  `ErrorText`, plus shell-only `Avatar`, `DropdownMenu`, `Sheet`, `Separator`) — pages compose
+  these, they don't hand-roll form/button markup. Dark is the `@theme` default
+  (`prefers-color-scheme: dark`); light overrides via a `prefers-color-scheme: light` media
+  query on the same CSS variables — no manual toggle exists.
+- **`components/ui/*` is built on Radix UI primitives + `class-variance-authority`** (the
+  shadcn/ui structural pattern), adopted after Phase 9 once every page was still a flat stack
+  of full-width link buttons with no persistent nav chrome. Every primitive kept its existing
+  public prop API (`variant`, `tone`, `label`, plain children) unchanged, so this was a
+  `components/ui/*` + `DashboardShell.tsx`-only rewrite — no page file needed to change to pick
+  up the new look. `DashboardShell` is now a real app shell: a role-aware sidebar (grouped nav
+  — Catalog/Fulfillment/Marketplaces for brand, flat list for provider, single item for admin)
+  with active-route highlighting, a footer user menu (`DropdownMenu` + `Avatar` initials +
+  sign-out), and a `Sheet` (Radix `Dialog`)-based slide-in drawer for the same nav below `md:`.
+  Deliberately **not** adopted: shadcn's own `--background`/`--foreground`/`--popover` color
+  convention — every Radix-backed primitive still reads FBP's own token names, to avoid a
+  second parallel color system. Also deliberately **not** converted: `SelectField` stays a
+  styled native `<select>`, not Radix's `Select` — see the Landmine below.
 
 ### Supabase
 - **Every schema change is a migration** in `supabase/migrations/` (`pnpm db:new <name>`).
@@ -789,6 +803,33 @@ A change is done when **all** are true:
   redirect" is not the same shape every time — check whether a durable long-lived
   token exists at all before assuming a template fits, don't just pattern-match on
   the absence of a browser redirect step.
+- **Radix `Select` would have broken every `SelectField` test on adoption.** Went
+  in planning to convert `SelectField` (`InventoryPage`, `SkuMappingsPage`) to
+  Radix's `Select` primitive as part of the shadcn/Radix rewrite of
+  `components/ui/*`. Checked the existing tests first (`InventoryPage.test.tsx`)
+  and found them driving it via `userEvent.selectOptions(screen.getByLabelText(...),
+  'value')` — that API dispatches a native `<select>` change event and only works
+  against a real `<select>` element; Radix's `Select` renders a custom trigger
+  button + portaled listbox with no native `<select>` in the DOM at all, so every
+  existing test would have needed rewriting to click-then-click-an-item instead.
+  Kept `SelectField` as a styled native `<select>` (chevron icon via
+  `lucide-react`, same focus-ring treatment as `TextField`) instead — real shadcn
+  value (Radix `Select`) sacrificed for zero test churn and zero risk of subtly
+  changing keyboard/screen-reader behavior pages already depended on. The tell for
+  next time: before swapping a primitive's underlying implementation, grep its
+  existing tests for how they interact with it — a component's *test-facing* API
+  can be a hard constraint even when its *visual* API has room to change.
+- **Adding `NavLink` to `DashboardShell` broke all 18 page-level component tests
+  that render a page directly** (`ProductsPage.test.tsx` et al.) — `NavLink` calls
+  `useLocation()` internally, which throws "may be used only in the context of a
+  `<Router>`" outside one. Every one of those tests renders its page wrapped only
+  in `<AuthContext.Provider>`, with no router, because `DashboardShell` previously
+  had no router dependency at all (just a sign-out button). Fixed by wrapping each
+  test's `renderWithAuth()` in `<MemoryRouter>`. The tell for next time: adding
+  *any* `react-router` hook/component to a shared shell component is a foundation-
+  level change that can break every page test that renders through it, even tests
+  that have nothing to do with navigation — grep for the shell's usages before
+  assuming a shell-only change is isolated to the shell.
 
 ## Overrides
 

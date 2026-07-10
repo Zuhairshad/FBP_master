@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router'
 import { ProviderInventoryPage } from './ProviderInventoryPage'
 import { AuthContext } from '../hooks/auth-context'
 import { supabase } from '../lib/supabase'
@@ -37,21 +38,23 @@ function mockFrom(...results: QueryResult[]) {
 
 function renderWithAuth() {
   return render(
-    <AuthContext.Provider
-      value={{
-        session: null,
-        loading: false,
-        profile: {
-          id: 'provider-1',
-          role: 'provider',
-          display_name: 'Provider One',
-          company_name: null,
-          created_at: '2026-01-01T00:00:00Z',
-        },
-      }}
-    >
-      <ProviderInventoryPage />
-    </AuthContext.Provider>,
+    <MemoryRouter>
+      <AuthContext.Provider
+        value={{
+          session: null,
+          loading: false,
+          profile: {
+            id: 'provider-1',
+            role: 'provider',
+            display_name: 'Provider One',
+            company_name: null,
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        }}
+      >
+        <ProviderInventoryPage />
+      </AuthContext.Provider>
+    </MemoryRouter>,
   )
 }
 
