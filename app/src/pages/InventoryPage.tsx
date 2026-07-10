@@ -1,6 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { DashboardShell } from '../components/DashboardShell'
+import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { TextField } from '../components/ui/TextField'
+import { SelectField } from '../components/ui/SelectField'
+import { ErrorText } from '../components/ui/ErrorText'
+import { EmptyState } from '../components/ui/EmptyState'
+import { ListRow } from '../components/ui/ListRow'
 import type { Database } from '../types/database'
 
 type Product = Database['public']['Tables']['products']['Row']
@@ -79,91 +86,79 @@ export function InventoryPage() {
   return (
     <DashboardShell title="Inventory">
       <div className="mx-auto max-w-2xl">
-        <form
-          onSubmit={(event) => void handleSetInventory(event)}
-          className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
-        >
-          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Set inventory level</h2>
+        <Card>
+          <form onSubmit={(event) => void handleSetInventory(event)}>
+            <h2 className="text-sm font-semibold text-ink">Set inventory level</h2>
 
-          <label className="mt-3 block text-sm">
-            Product
-            <select
-              required
-              value={productId}
-              onChange={(event) => setProductId(event.target.value)}
-              className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
-            >
-              <option value="" disabled>
-                Select a product
-              </option>
-              {products.map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.master_sku} — {product.name}
+            <div className="mt-3">
+              <SelectField label="Product" required value={productId} onChange={(event) => setProductId(event.target.value)}>
+                <option value="" disabled>
+                  Select a product
                 </option>
-              ))}
-            </select>
-          </label>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.master_sku} — {product.name}
+                  </option>
+                ))}
+              </SelectField>
+            </div>
 
-          <label className="mt-3 block text-sm">
-            Warehouse
-            <select
-              required
-              value={warehouseId}
-              onChange={(event) => setWarehouseId(event.target.value)}
-              className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
-            >
-              <option value="" disabled>
-                Select a warehouse
-              </option>
-              {warehouses.map((warehouse) => (
-                <option key={warehouse.id} value={warehouse.id}>
-                  {warehouse.name}
+            <div className="mt-3">
+              <SelectField
+                label="Warehouse"
+                required
+                value={warehouseId}
+                onChange={(event) => setWarehouseId(event.target.value)}
+              >
+                <option value="" disabled>
+                  Select a warehouse
                 </option>
-              ))}
-            </select>
-          </label>
+                {warehouses.map((warehouse) => (
+                  <option key={warehouse.id} value={warehouse.id}>
+                    {warehouse.name}
+                  </option>
+                ))}
+              </SelectField>
+            </div>
 
-          <label className="mt-3 block text-sm">
-            Quantity
-            <input
-              type="number"
-              required
-              min={0}
-              value={quantity}
-              onChange={(event) => setQuantity(event.target.value)}
-              className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
-            />
-          </label>
+            <div className="mt-3">
+              <TextField
+                label="Quantity"
+                type="number"
+                required
+                min={0}
+                value={quantity}
+                onChange={(event) => setQuantity(event.target.value)}
+              />
+            </div>
 
-          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+            {error && (
+              <div className="mt-3">
+                <ErrorText>{error}</ErrorText>
+              </div>
+            )}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="mt-4 w-full rounded bg-slate-900 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
-          >
-            {submitting ? 'Saving…' : 'Save inventory level'}
-          </button>
-        </form>
+            <div className="mt-4">
+              <Button type="submit" disabled={submitting} className="w-full">
+                {submitting ? 'Saving…' : 'Save inventory level'}
+              </Button>
+            </div>
+          </form>
+        </Card>
 
         <ul className="mt-6 space-y-2">
-          {loading && <li className="text-sm text-slate-500">Loading inventory…</li>}
-          {!loading && inventory.length === 0 && (
-            <li className="text-sm text-slate-500">No inventory set yet.</li>
-          )}
+          {loading && <li><EmptyState>Loading inventory…</EmptyState></li>}
+          {!loading && inventory.length === 0 && <li><EmptyState>No inventory set yet.</EmptyState></li>}
           {inventory.map((row) => {
             const product = products.find((p) => p.id === row.product_id)
             const warehouse = warehouses.find((w) => w.id === row.warehouse_id)
             return (
-              <li
-                key={row.id}
-                className="flex items-center justify-between rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800"
-              >
-                <span className="text-slate-700 dark:text-slate-300">
+              <ListRow key={row.id}>
+                <span className="text-ink-muted">
                   {product?.name ?? 'Unknown product'} @ {warehouse?.name ?? 'Unknown warehouse'}
                 </span>
-                <span className="font-medium text-slate-900 dark:text-slate-100">{row.quantity}</span>
-              </li>
+                <span className="font-medium text-ink">{row.quantity}</span>
+              </ListRow>
             )
           })}
         </ul>

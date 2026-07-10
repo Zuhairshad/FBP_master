@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { DashboardShell } from '../components/DashboardShell'
+import { ErrorText } from '../components/ui/ErrorText'
+import { EmptyState } from '../components/ui/EmptyState'
+import { ListRow } from '../components/ui/ListRow'
 import type { Database } from '../types/database'
 
 type Product = Database['public']['Tables']['products']['Row']
@@ -46,12 +49,14 @@ export function ProviderInventoryPage() {
   return (
     <DashboardShell title="Brand Inventory">
       <div className="mx-auto max-w-2xl">
-        {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
-        {loading && <p className="text-sm text-slate-500">Loading inventory…</p>}
+        {error && (
+          <div className="mb-4">
+            <ErrorText>{error}</ErrorText>
+          </div>
+        )}
+        {loading && <EmptyState>Loading inventory…</EmptyState>}
         {!loading && inventory.length === 0 && (
-          <p className="text-sm text-slate-500">
-            No inventory visible yet — this fills in once you approve a booking request.
-          </p>
+          <EmptyState>No inventory visible yet — this fills in once you approve a booking request.</EmptyState>
         )}
 
         <ul className="space-y-2">
@@ -59,16 +64,13 @@ export function ProviderInventoryPage() {
             const product = products.find((p) => p.id === row.product_id)
             const warehouse = warehouses.find((w) => w.id === row.warehouse_id)
             return (
-              <li
-                key={row.id}
-                className="flex items-center justify-between rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800"
-              >
-                <span className="text-slate-700 dark:text-slate-300">
+              <ListRow key={row.id}>
+                <span className="text-ink-muted">
                   {product ? `${product.master_sku} — ${product.name}` : 'Unknown product'} @{' '}
                   {warehouse?.name ?? 'Unknown warehouse'}
                 </span>
-                <span className="font-medium text-slate-900 dark:text-slate-100">{row.quantity}</span>
-              </li>
+                <span className="font-medium text-ink">{row.quantity}</span>
+              </ListRow>
             )
           })}
         </ul>

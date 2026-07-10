@@ -2,6 +2,11 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { DashboardShell } from '../components/DashboardShell'
+import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { TextField } from '../components/ui/TextField'
+import { ErrorText } from '../components/ui/ErrorText'
+import { EmptyState } from '../components/ui/EmptyState'
 import type { Database } from '../types/database'
 
 type Warehouse = Database['public']['Tables']['warehouses']['Row']
@@ -146,111 +151,79 @@ export function WarehousesPage() {
   return (
     <DashboardShell title="Warehouse Setup">
       <div className="mx-auto max-w-2xl">
-        <form
-          onSubmit={(event) => void handleCreateWarehouse(event)}
-          className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
-        >
-          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Add a warehouse</h2>
+        <Card>
+          <form onSubmit={(event) => void handleCreateWarehouse(event)}>
+            <h2 className="text-sm font-semibold text-ink">Add a warehouse</h2>
 
-          <label className="mt-3 block text-sm">
-            Name
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
-            />
-          </label>
+            <div className="mt-3">
+              <TextField label="Name" type="text" required value={name} onChange={(event) => setName(event.target.value)} />
+            </div>
 
-          <label className="mt-3 block text-sm">
-            Address
-            <input
-              type="text"
-              required
-              value={addressLine1}
-              onChange={(event) => setAddressLine1(event.target.value)}
-              className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
-            />
-          </label>
-
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <label className="block text-sm">
-              City
-              <input
+            <div className="mt-3">
+              <TextField
+                label="Address"
                 type="text"
                 required
-                value={city}
-                onChange={(event) => setCity(event.target.value)}
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+                value={addressLine1}
+                onChange={(event) => setAddressLine1(event.target.value)}
               />
-            </label>
-            <label className="block text-sm">
-              State (optional)
-              <input
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <TextField label="City" type="text" required value={city} onChange={(event) => setCity(event.target.value)} />
+              <TextField
+                label="State (optional)"
                 type="text"
                 value={state}
                 onChange={(event) => setState(event.target.value)}
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
               />
-            </label>
-            <label className="block text-sm">
-              Postal code
-              <input
+              <TextField
+                label="Postal code"
                 type="text"
                 required
                 value={postalCode}
                 onChange={(event) => setPostalCode(event.target.value)}
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
               />
-            </label>
-            <label className="block text-sm">
-              Country
-              <input
+              <TextField
+                label="Country"
                 type="text"
                 required
                 value={country}
                 onChange={(event) => setCountry(event.target.value)}
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
               />
-            </label>
-          </div>
+            </div>
 
-          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+            {error && (
+              <div className="mt-3">
+                <ErrorText>{error}</ErrorText>
+              </div>
+            )}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="mt-4 w-full rounded bg-slate-900 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
-          >
-            {submitting ? 'Adding…' : 'Add warehouse'}
-          </button>
-        </form>
+            <div className="mt-4">
+              <Button type="submit" disabled={submitting} className="w-full">
+                {submitting ? 'Adding…' : 'Add warehouse'}
+              </Button>
+            </div>
+          </form>
+        </Card>
 
         <ul className="mt-6 space-y-4">
-          {loading && <li className="text-sm text-slate-500">Loading warehouses…</li>}
-          {!loading && warehouses.length === 0 && (
-            <li className="text-sm text-slate-500">No warehouses yet.</li>
-          )}
+          {loading && <li><EmptyState>Loading warehouses…</EmptyState></li>}
+          {!loading && warehouses.length === 0 && <li><EmptyState>No warehouses yet.</EmptyState></li>}
           {warehouses.map((warehouse) => (
-            <li
-              key={warehouse.id}
-              className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
-            >
-              <p className="font-medium text-slate-900 dark:text-slate-100">{warehouse.name}</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
+            <li key={warehouse.id} className="rounded-lg border border-hairline bg-surface-1 p-4">
+              <p className="font-medium text-ink">{warehouse.name}</p>
+              <p className="text-sm text-ink-subtle">
                 {warehouse.address_line1}, {warehouse.city} {warehouse.postal_code}, {warehouse.country}
               </p>
 
               <div className="mt-3">
-                <p className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                  Services
-                </p>
+                <p className="text-xs font-semibold uppercase text-ink-subtle">Services</p>
                 <ul className="mt-1 space-y-1">
                   {services
                     .filter((service) => service.warehouse_id === warehouse.id)
                     .map((service) => (
-                      <li key={service.id} className="text-sm text-slate-700 dark:text-slate-300">
+                      <li key={service.id} className="text-sm text-ink-muted">
                         {service.name}
                       </li>
                     ))}
@@ -270,26 +243,21 @@ export function WarehousesPage() {
                         [warehouse.id]: event.target.value,
                       }))
                     }
-                    className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+                    className="flex-1 rounded-md border border-hairline bg-surface-1 px-2 py-1 text-sm text-ink"
                   />
-                  <button
-                    type="submit"
-                    className="rounded border border-slate-300 px-3 py-1 text-xs dark:border-slate-700"
-                  >
+                  <Button type="submit" variant="secondary" className="text-xs">
                     Add service
-                  </button>
+                  </Button>
                 </form>
               </div>
 
               <div className="mt-3">
-                <p className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                  Storage spaces
-                </p>
+                <p className="text-xs font-semibold uppercase text-ink-subtle">Storage spaces</p>
                 <ul className="mt-1 space-y-1">
                   {spaces
                     .filter((space) => space.warehouse_id === warehouse.id)
                     .map((space) => (
-                      <li key={space.id} className="text-sm text-slate-700 dark:text-slate-300">
+                      <li key={space.id} className="text-sm text-ink-muted">
                         {space.name} — {space.capacity_units} {space.unit_type}
                       </li>
                     ))}
@@ -313,7 +281,7 @@ export function WarehousesPage() {
                         },
                       }))
                     }
-                    className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+                    className="flex-1 rounded-md border border-hairline bg-surface-1 px-2 py-1 text-sm text-ink"
                   />
                   <input
                     type="text"
@@ -330,7 +298,7 @@ export function WarehousesPage() {
                         },
                       }))
                     }
-                    className="w-36 rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+                    className="w-36 rounded-md border border-hairline bg-surface-1 px-2 py-1 text-sm text-ink"
                   />
                   <input
                     type="number"
@@ -348,14 +316,11 @@ export function WarehousesPage() {
                         },
                       }))
                     }
-                    className="w-24 rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+                    className="w-24 rounded-md border border-hairline bg-surface-1 px-2 py-1 text-sm text-ink"
                   />
-                  <button
-                    type="submit"
-                    className="rounded border border-slate-300 px-3 py-1 text-xs dark:border-slate-700"
-                  >
+                  <Button type="submit" variant="secondary" className="text-xs">
                     Add space
-                  </button>
+                  </Button>
                 </form>
               </div>
             </li>

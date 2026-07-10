@@ -3,6 +3,10 @@ import { useAuth } from '../hooks/useAuth'
 import { DashboardShell } from '../components/DashboardShell'
 import { getShopifyStatus, requestShopifyInstallUrl, triggerShopifySync } from '../lib/worker'
 import type { ShopifyStatus } from '../lib/worker'
+import { Button } from '../components/ui/Button'
+import { TextField } from '../components/ui/TextField'
+import { ErrorText } from '../components/ui/ErrorText'
+import { EmptyState } from '../components/ui/EmptyState'
 
 export function ShopifyConnectPage() {
   const { session } = useAuth()
@@ -68,51 +72,39 @@ export function ShopifyConnectPage() {
   return (
     <DashboardShell title="Connect Shopify">
       <div className="mx-auto max-w-md">
-        {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
-        {loading && <p className="text-sm text-slate-500">Loading connection status…</p>}
+        {error && (
+          <div className="mb-4">
+            <ErrorText>{error}</ErrorText>
+          </div>
+        )}
+        {loading && <EmptyState>Loading connection status…</EmptyState>}
 
         {!loading && status?.connected && (
           <div className="space-y-3">
-            <p className="text-sm text-slate-700 dark:text-slate-300">
-              Connected to <span className="font-medium">{status.shopDomain}</span>
+            <p className="text-sm text-ink-muted">
+              Connected to <span className="font-medium text-ink">{status.shopDomain}</span>
             </p>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Last synced: {status.lastSyncedAt ?? 'never'}
-            </p>
-            <button
-              type="button"
-              disabled={syncing}
-              onClick={() => void handleSync()}
-              className="rounded border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-slate-700"
-            >
+            <p className="text-sm text-ink-subtle">Last synced: {status.lastSyncedAt ?? 'never'}</p>
+            <Button type="button" variant="secondary" disabled={syncing} onClick={() => void handleSync()}>
               {syncing ? 'Syncing…' : 'Sync now'}
-            </button>
-            {syncResult !== null && (
-              <p className="text-sm text-slate-500 dark:text-slate-400">Synced {syncResult} order(s).</p>
-            )}
+            </Button>
+            {syncResult !== null && <p className="text-sm text-ink-subtle">Synced {syncResult} order(s).</p>}
           </div>
         )}
 
         {!loading && !status?.connected && (
           <form onSubmit={(event) => void handleConnect(event)} className="space-y-3">
-            <label className="block text-sm">
-              Shop domain
-              <input
-                type="text"
-                value={shop}
-                onChange={(event) => setShop(event.target.value)}
-                placeholder="your-store.myshopify.com"
-                required
-                className="mt-1 block w-full rounded border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={connecting}
-              className="rounded border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-slate-700"
-            >
+            <TextField
+              label="Shop domain"
+              type="text"
+              value={shop}
+              onChange={(event) => setShop(event.target.value)}
+              placeholder="your-store.myshopify.com"
+              required
+            />
+            <Button type="submit" variant="secondary" disabled={connecting}>
               {connecting ? 'Connecting…' : 'Connect Shopify'}
-            </button>
+            </Button>
           </form>
         )}
       </div>

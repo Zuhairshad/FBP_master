@@ -1,6 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { supabase } from '../lib/supabase'
+import { Button } from '../components/ui/Button'
+import { TextField } from '../components/ui/TextField'
+import { ErrorText } from '../components/ui/ErrorText'
 
 export function SignInPage() {
   const navigate = useNavigate()
@@ -27,47 +30,47 @@ export function SignInPage() {
   }
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-white px-4 dark:bg-slate-950">
+    <main className="flex min-h-svh items-center justify-center bg-canvas px-4">
       <form
         onSubmit={(event) => void handleSubmit(event)}
-        className="w-full max-w-sm rounded-lg border border-slate-200 p-6 dark:border-slate-800"
+        className="w-full max-w-sm rounded-lg border border-hairline bg-surface-1 p-6"
       >
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Sign in</h1>
+        <h1 className="text-xl font-semibold text-ink">Sign in</h1>
 
-        <label className="mt-4 block text-sm">
-          Email
-          <input
+        <div className="mt-4">
+          <TextField
+            label="Email"
             type="email"
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
           />
-        </label>
+        </div>
 
-        <label className="mt-4 block text-sm">
-          Password
-          <input
+        <div className="mt-4">
+          <TextField
+            label="Password"
             type="password"
             required
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
           />
-        </label>
+        </div>
 
-        {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+        {error && (
+          <div className="mt-4">
+            <ErrorText>{error}</ErrorText>
+          </div>
+        )}
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="mt-6 w-full rounded bg-slate-900 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
-        >
-          {submitting ? 'Signing in…' : 'Sign in'}
-        </button>
+        <div className="mt-6">
+          <Button type="submit" disabled={submitting} className="w-full">
+            {submitting ? 'Signing in…' : 'Sign in'}
+          </Button>
+        </div>
 
-        <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
-          Don't have an account? <Link to="/sign-up" className="underline">Sign up</Link>
+        <p className="mt-4 text-center text-sm text-ink-subtle">
+          Don't have an account? <Link to="/sign-up" className="text-primary underline">Sign up</Link>
         </p>
       </form>
     </main>
