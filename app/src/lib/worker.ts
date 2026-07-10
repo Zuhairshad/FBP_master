@@ -40,3 +40,21 @@ export interface ShopifyStatus {
 export function getShopifyStatus(accessToken: string): Promise<ShopifyStatus> {
   return callWorker('/shopify/status', accessToken)
 }
+
+export function requestTiktokInstallUrl(accessToken: string): Promise<{ url: string }> {
+  return callWorker('/tiktok/install', accessToken, { method: 'POST' })
+}
+
+export function triggerTiktokSync(accessToken: string): Promise<{ syncedCount: number }> {
+  return callWorker('/tiktok/sync', accessToken, { method: 'POST' })
+}
+
+export interface TiktokStatus {
+  connected: boolean
+  shopId?: string
+  lastSyncedAt?: string | null
+}
+
+export function getTiktokStatus(accessToken: string): Promise<TiktokStatus> {
+  return callWorker('/tiktok/status', accessToken)
+}

@@ -17,6 +17,8 @@ import { ProviderInventoryPage } from './pages/ProviderInventoryPage'
 import { SkuMappingsPage } from './pages/SkuMappingsPage'
 import { ShopifyConnectPage } from './pages/ShopifyConnectPage'
 import { ShopifyOrdersPage } from './pages/ShopifyOrdersPage'
+import { TiktokConnectPage } from './pages/TiktokConnectPage'
+import { TiktokOrdersPage } from './pages/TiktokOrdersPage'
 import { ProviderOrdersPage } from './pages/ProviderOrdersPage'
 
 function App() {
@@ -38,6 +40,8 @@ function App() {
               <Route path="/brand/sku-mappings" element={<SkuMappingsPage />} />
               <Route path="/brand/shopify" element={<ShopifyConnectPage />} />
               <Route path="/brand/shopify/orders" element={<ShopifyOrdersPage />} />
+              <Route path="/brand/tiktok" element={<TiktokConnectPage />} />
+              <Route path="/brand/tiktok/orders" element={<TiktokOrdersPage />} />
             </Route>
 
             <Route element={<RequireRole role="provider" />}>

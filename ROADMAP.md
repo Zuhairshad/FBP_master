@@ -187,14 +187,58 @@ store + API credentials.
 
 ---
 
-## Phase 6 — Marketplace Integration: TikTok Shop `[ ]`
+## Phase 6 — Marketplace Integration: TikTok Shop `[~]`
 
 Same shape as Phase 5. TikTok-specifics: HMAC-SHA256 request signing, auth-code →
 token exchange (`auth.tiktok-shops.com` / `open-api.tiktokglobalshop.com`).
 
-- [ ] `TiktokApiService` + `tiktok_tokens` + webhook route + sync endpoint
-- [ ] Worker tests (MSW), RLS tests, connect + order UI, e2e `@smoke`
-- [ ] Floor + tests + build + smoke; Eyes
+**Blocked on (live-credential testing only, not build/mock-test work):** a TikTok Shop
+Partner Center app + test seller account. Additionally, TikTok's own API docs
+(`partner.tiktokshop.com`) returned HTTP 403 from this sandbox's network policy when
+fetched directly — the request-signing algorithm, OAuth flow, and order/webhook shapes
+below are built from secondary sources describing the same published spec, not a
+first-party doc fetch (see `CLAUDE.md` Landmines). Everything is unit-tested against
+this documented format; live wire-format verification is a superset of the credential
+blocker above.
+
+- [x] Migration: `tiktok_tokens` (mirrors `shopify_tokens` exactly — zero RLS policies,
+      service-role only; `platform_orders` needed no schema change, its `platform`
+      column already accepts `'tiktok'`)
+- [x] Worker: `worker/src/tiktok/` — HMAC-SHA256 request signing (`signRequest`:
+      secret-wrapped, sorted-params string, hex uppercase), auth-code → token exchange,
+      an "authorized shops" resolution call (TikTok's callback carries no shop id,
+      unlike Shopify's), order fetch + SKU-resolved upsert, webhook receiver,
+      manual sync endpoint, `/tiktok/status`. **Deviated from the "`TiktokApiService`"
+      single-class naming** — kept Phase 5's file-per-concern module shape
+      (`client.ts`/`supabaseAdmin.ts`/`sync.ts`/`handlers.ts`) instead, since that's what
+      Phase 5 actually built (this line's naming predates that decision)
+- [x] **Deviated from MSW**, same as Phase 5: every network-calling function takes an
+      injected `fetchImpl`. 49 new worker tests (113 total), all in the Workers runtime
+- [x] Extracted `worker/src/shared/hmac.ts` + `oauthState.ts` out of `shopify/` (both were
+      already fully generic, no Shopify-specific logic) rather than duplicating them a
+      third time for TikTok — Phases 7-9 reuse the same shared module
+- [x] RLS tests: `tiktok_tokens_rls.test.sql` (zero-policy shape, mirrors
+      `shopify_tokens_rls.test.sql`) — written, **not yet executed against a live
+      Postgres** (same sandbox DB blocker as every phase so far). `platform_orders`'
+      existing RLS tests already cover multi-platform visibility generically, no new
+      test needed there
+- [x] Frontend: `TiktokConnectPage` (no shop-domain input needed — TikTok's authorize
+      URL takes no shop parameter, unlike Shopify's), `TiktokOrdersPage`
+- [x] **Bug found and fixed during this phase, not introduced by it**: `ShopifyOrdersPage`
+      queried `platform_orders` with no `platform` filter — harmless with only one
+      platform connected (Phase 5), a real cross-platform leak once a second platform's
+      orders share the same table. Added `.eq('platform', 'shopify')` /
+      `.eq('platform', 'tiktok')` to both pages' queries, with test coverage asserting
+      the filter
+- [ ] e2e `@smoke`: same carried-forward, repo-wide gap as Phase 5 (Phase 13 closes it)
+- [x] Floor + Foundation rung (touched shared Worker structure: extracted `shared/`,
+      widened the `Env` type) + build + `wrangler deploy --dry-run` — all green
+- [x] Eyes: unauthenticated redirect confirmed clean on `/brand/tiktok` and
+      `/brand/tiktok/orders` (desktop + mobile, no console errors); **full visual check
+      of the authenticated flows is UNVERIFIED** (needs a live session, same DB blocker
+      as every phase so far). OAuth/signing round-trip against a real TikTok Shop app is
+      UNVERIFIED end-to-end (needs live credentials + first-party doc access, per the
+      blocker above)
 
 ---
 

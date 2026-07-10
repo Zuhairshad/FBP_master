@@ -15,7 +15,7 @@ function statusTone(status: PlatformOrder['status']) {
   return 'neutral'
 }
 
-export function ShopifyOrdersPage() {
+export function TiktokOrdersPage() {
   const [orders, setOrders] = useState<PlatformOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -27,7 +27,7 @@ export function ShopifyOrdersPage() {
       const { data, error: fetchError } = await supabase
         .from('platform_orders')
         .select('*')
-        .eq('platform', 'shopify')
+        .eq('platform', 'tiktok')
         .order('created_at', { ascending: false })
 
       if (cancelled) return
@@ -56,7 +56,7 @@ export function ShopifyOrdersPage() {
         )}
         {loading && <EmptyState>Loading orders…</EmptyState>}
         {!loading && orders.length === 0 && (
-          <EmptyState>No orders yet — connect a store and sync to see orders here.</EmptyState>
+          <EmptyState>No orders yet — connect a TikTok Shop and sync to see orders here.</EmptyState>
         )}
 
         <ul className="space-y-2">

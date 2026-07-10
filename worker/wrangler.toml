@@ -11,3 +11,7 @@ compatibility_flags = ["nodejs_compat"]
 # locally (see worker/.dev.vars.example): SUPABASE_URL,
 # SUPABASE_SERVICE_ROLE_KEY, SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET,
 # SHOPIFY_SCOPES, APP_URL, WORKER_URL.
+#
+# Phase 6 (TikTok Shop) additionally needs: TIKTOK_APP_KEY, TIKTOK_APP_SECRET
+# (no WORKER_URL equivalent — TikTok's OAuth redirect URI is registered in
+# the Partner Center, not passed per request; see worker/src/tiktok/client.ts).

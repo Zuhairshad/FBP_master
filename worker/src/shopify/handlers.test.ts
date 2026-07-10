@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { hmacSha256Base64, hmacSha256Hex } from './hmac'
+import { hmacSha256Base64, hmacSha256Hex } from '../shared/hmac'
 import { handleCallback, handleInstall, handleOrderWebhook, handleStatus, handleSync } from './handlers'
-import { signInstallState } from './oauthState'
+import { signInstallState } from '../shared/oauthState'
 import type { ShopifyWorkerEnv } from './env'
 
 const env: ShopifyWorkerEnv = {

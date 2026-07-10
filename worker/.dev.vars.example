@@ -5,11 +5,20 @@ SUPABASE_SERVICE_ROLE_KEY=
 
 # Shopify custom/public app credentials (Phase 5). SHOPIFY_CLIENT_SECRET also
 # signs the OAuth install-state token and verifies webhook/callback HMACs —
-# see worker/src/shopify/oauthState.ts and hmac.ts.
+# see worker/src/shared/oauthState.ts and hmac.ts.
 SHOPIFY_CLIENT_ID=
 SHOPIFY_CLIENT_SECRET=
 SHOPIFY_SCOPES=read_orders
 # Where the browser lands after OAuth completes (the app/ dev server).
 APP_URL=http://localhost:5173
-# This Worker's own publicly reachable URL — used as the OAuth redirect_uri.
+# This Worker's own publicly reachable URL — used as the Shopify OAuth
+# redirect_uri. TikTok has no equivalent var: its redirect URI is registered
+# in the TikTok Shop Partner Center, not passed per request.
 WORKER_URL=http://localhost:8787
+
+# TikTok Shop app credentials (Phase 6). TIKTOK_APP_SECRET also signs the
+# OAuth install-state token and (per worker/src/tiktok/client.ts's
+# ASSUMPTION notes) request/webhook signatures — see
+# worker/src/tiktok/client.ts.
+TIKTOK_APP_KEY=
+TIKTOK_APP_SECRET=

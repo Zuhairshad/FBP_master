@@ -7,7 +7,7 @@ import {
   verifyOAuthCallbackHmac,
   verifyWebhookHmac,
 } from './client'
-import { hmacSha256Hex } from './hmac'
+import { hmacSha256Hex } from '../shared/hmac'
 
 describe('isValidShopDomain', () => {
   it('accepts a bare *.myshopify.com domain', () => {
