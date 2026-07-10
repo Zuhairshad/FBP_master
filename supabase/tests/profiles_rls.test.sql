@@ -1,9 +1,20 @@
 -- RLS policy tests for public.profiles — three principals per TESTING.md:
--- anon (no access), owner (full access to own row), other user (no access
--- to someone else's row). Run with: supabase test db
+-- anon (no access), owner (full access to own row), other user (read-only
+-- directory access, no mutation, to someone else's row). Run with:
+-- supabase test db
+--
+-- NOTE: Phase 3 (20260710133050_extend_directory_visibility.sql) added a
+-- profiles_select_directory policy (to authenticated using (true)) so a
+-- brand can see a provider's identity before any booking relationship
+-- exists, and vice versa. This intentionally widens SELECT beyond
+-- owner-only — mutation (UPDATE) stays owner-only, unaffected. The
+-- assertions below reflect that: "other user" now sees the row (read) but
+-- still cannot mutate it.
 
 begin;
 select plan(9);
+-- Plan count unchanged: two assertions below were rewritten (directory read
+-- now succeeds where it used to be denied) rather than added/removed.
 
 -- Helper: runs an UPDATE as whatever role is currently active and returns the
 -- affected row count. Needed because a blocked RLS UPDATE silently matches 0
@@ -86,8 +97,8 @@ set local request.jwt.claims to '{"sub":"11111111-1111-1111-1111-111111111111","
 
 select is(
   (select count(*) from public.profiles)::int,
-  1,
-  'user A sees exactly one row (their own)'
+  3,
+  'user A sees all profiles via the directory policy (own + others), not just their own'
 );
 
 select is(
@@ -105,11 +116,11 @@ select is(
   'user A can update their own display_name'
 );
 
--- negative case: user A cannot see or mutate user B's row
+-- directory read succeeds (by design, see NOTE above); mutation still doesn't
 select is(
-  (select count(*) from public.profiles where id = '22222222-2222-2222-2222-222222222222')::int,
-  0,
-  'user A cannot see user B''s row'
+  (select display_name from public.profiles where id = '22222222-2222-2222-2222-222222222222'),
+  'Provider B',
+  'user A can read user B''s row via the directory policy'
 );
 
 select is(

@@ -1,9 +1,12 @@
 // Hand-authored interim types matching supabase/migrations/20260710124353_create_profiles.sql,
-// 20260710130555_create_warehouses.sql, and 20260710130605_create_products.sql.
+// 20260710130555_create_warehouses.sql, 20260710130605_create_products.sql,
+// 20260710133050_extend_directory_visibility.sql (RLS-only, no shape change),
+// 20260710133104_create_booking_requests.sql, and 20260710133106_create_inventory.sql.
 // Regenerate with `pnpm db:types` once local/hosted Supabase is reachable —
 // this file only exists so the app can typecheck against the schema before that.
 
 export type UserRole = 'brand' | 'provider' | 'admin'
+export type BookingStatus = 'pending' | 'approved' | 'rejected'
 
 export interface Database {
   public: {
@@ -146,11 +149,66 @@ export interface Database {
         }
         Relationships: []
       }
+      booking_requests: {
+        Row: {
+          id: string
+          brand_id: string
+          provider_id: string
+          storage_space_id: string
+          status: BookingStatus
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          provider_id?: string
+          storage_space_id: string
+          status?: BookingStatus
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          brand_id?: string
+          provider_id?: string
+          storage_space_id?: string
+          status?: BookingStatus
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      inventory: {
+        Row: {
+          id: string
+          product_id: string
+          warehouse_id: string
+          quantity: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          product_id: string
+          warehouse_id: string
+          quantity?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          product_id?: string
+          warehouse_id?: string
+          quantity?: number
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
     Enums: {
       user_role: UserRole
+      booking_status: BookingStatus
     }
     CompositeTypes: Record<string, never>
   }

@@ -64,23 +64,37 @@ Merged to `main` via PR #4.
 
 ---
 
-## Phase 3 — Booking Flow (Brand ↔ Provider) `[ ]`
+## Phase 3 — Booking Flow (Brand ↔ Provider) `[~]`
 
 **Goal:** brand finds a provider and requests a booking; provider approves/rejects;
 on approval, the brand's inventory becomes visible in that provider's dashboard —
 mirrors the original system's core workflow and its brand-isolation guarantee.
 
-- [ ] Migration: `booking_requests` (brand_id, provider_id, storage_space_id, status
-      enum: pending/approved/rejected, timestamps)
-- [ ] Migration: `inventory` (product_id, warehouse_id, quantity)
-- [ ] RLS: only the two parties on a booking can see/update it; inventory visible to
+- [x] Migration: `booking_requests` (brand_id, provider_id, storage_space_id, status
+      enum: pending/approved/rejected, timestamps) — `provider_id` is trigger-derived,
+      never client-supplied (see `CLAUDE.md`)
+- [x] Migration: `inventory` (product_id, warehouse_id, quantity)
+- [x] Migration: directory-visibility policies on `profiles`/`warehouses`/
+      `warehouse_services`/`storage_spaces` — needed so a brand can browse providers
+      *before* any booking relationship exists (see `CLAUDE.md` for the rationale and
+      the resulting update to Phase 1/2's RLS test assertions)
+- [x] RLS: only the two parties on a booking can see/update it; inventory visible to
       the owning brand always, to a provider only via an approved booking
-- [ ] RLS tests: booking C (uninvolved brand/provider) cannot see booking A↔B
-- [ ] Frontend: provider directory/search for brand; request UI; provider
-      approve/reject UI; inventory view scoped correctly on both sides
-- [ ] Integration test: approve flow actually flips inventory visibility
-- [ ] Floor + integration tests for the changed path + build
-- [ ] Eyes on directory, request, and inventory pages
+- [x] RLS tests: booking C (uninvolved brand/provider) cannot see booking A↔B — written
+      (`booking_requests_rls.test.sql`), **not yet executed against a live Postgres**
+      (same sandbox DB blocker as every phase so far)
+- [x] Frontend: provider directory/search for brand (`BookingsPage`); request UI (same
+      page); provider approve/reject UI (`ProviderBookingsPage`); inventory view scoped
+      correctly on both sides (`InventoryPage` brand-side, `ProviderInventoryPage`
+      provider-side, read-only)
+- [x] Integration test: approve flow actually flips inventory visibility — written as a
+      pgTAP test (`inventory_rls.test.sql`, asserts provider visibility before and after
+      the booking's status flips to `approved`), **not yet executed**, same DB blocker
+- [x] Component tests for all four new pages (mocked Supabase client)
+- [x] Floor + Foundation-rung full suite (new shared tables) + build — all green
+- [x] Eyes: unauthenticated redirect confirmed clean on all four new routes; **full
+      visual check of the authenticated flows is UNVERIFIED** (needs a live session,
+      same DB blocker as every phase so far)
 
 ---
 

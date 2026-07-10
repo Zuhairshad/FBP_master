@@ -1,9 +1,18 @@
 -- RLS policy tests for public.warehouses, public.warehouse_services, and
 -- public.storage_spaces. Three principals per TESTING.md: anon (no access),
--- owner (full access to own rows), other provider (no access to their rows).
--- Also covers the role-check defense-in-depth added in the warehouses/
--- products migrations (a non-provider account cannot create a warehouse row
--- even under its own id). Run with: supabase test db
+-- owner (full access to own rows), other provider (read-only directory
+-- access, no mutation, to their rows). Also covers the role-check
+-- defense-in-depth added in the warehouses/products migrations (a
+-- non-provider account cannot create a warehouse row even under its own
+-- id). Run with: supabase test db
+--
+-- NOTE: Phase 3 (20260710133050_extend_directory_visibility.sql) added
+-- directory SELECT policies (to authenticated using (true)) on all three
+-- tables so a brand can browse providers before any booking exists.
+-- warehouses has two fixture rows (one per provider) so its visibility
+-- assertions below change from "0 others visible" to "others visible, but
+-- still not mutable"; warehouse_services/storage_spaces only have fixture
+-- rows under provider A, so their counts are unaffected by the wider policy.
 
 begin;
 select plan(20);
@@ -118,14 +127,14 @@ set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","
 
 select is(
   (select count(*) from public.warehouses)::int,
-  1,
-  'provider A sees exactly one warehouse (their own)'
+  2,
+  'provider A sees both warehouses via the directory policy (own + provider B''s)'
 );
 
 select is(
   (select count(*) from public.warehouses where id = 'bbbbbbbb-0000-0000-0000-000000000001')::int,
-  0,
-  'provider A cannot see provider B''s warehouse'
+  1,
+  'provider A can read provider B''s warehouse via the directory policy (read-only)'
 );
 
 select lives_ok(
