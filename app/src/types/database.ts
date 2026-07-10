@@ -263,6 +263,39 @@ export interface Database {
         }
         Relationships: []
       }
+      amazon_tokens: {
+        Row: {
+          id: string
+          brand_id: string
+          marketplace_id: string
+          refresh_token: string
+          access_token: string | null
+          access_token_expires_at: string | null
+          last_synced_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          marketplace_id: string
+          refresh_token: string
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          last_synced_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          brand_id?: string
+          marketplace_id?: string
+          refresh_token?: string
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          last_synced_at?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       tiktok_tokens: {
         Row: {
           id: string

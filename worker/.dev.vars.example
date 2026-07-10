@@ -22,3 +22,10 @@ WORKER_URL=http://localhost:8787
 # worker/src/tiktok/client.ts.
 TIKTOK_APP_KEY=
 TIKTOK_APP_SECRET=
+
+# Amazon SP-API LWA app credentials (Phase 7). Used only to refresh a
+# brand-submitted refresh token into a short-lived access token — there is
+# no OAuth install/callback flow for Amazon, see
+# worker/src/amazon/handlers.ts.
+AMAZON_CLIENT_ID=
+AMAZON_CLIENT_SECRET=

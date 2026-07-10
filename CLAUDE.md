@@ -34,7 +34,11 @@ connects a Shopify store via OAuth, orders sync (manually or via webhook) into a
 `platform_orders` table resolved through Phase 4's SKU mapping, and the Worker (`worker/`)
 went from an empty scaffold to a real service layer for the first time. Phase 6 built on
 top of that: the second marketplace integration — TikTok Shop, same shape as Shopify,
-sharing `platform_orders` with no schema change. No real users, no real money.
+sharing `platform_orders` with no schema change. Phase 7 built on top of that: the third
+marketplace integration — Amazon SP-API, structurally different from Shopify/TikTok
+(no OAuth redirect flow, no request signing, no webhook — see its write-up below for
+why each of those is a deliberate deviation, not a shortcut). No real users, no real
+money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
@@ -265,8 +269,76 @@ as Shopify — this is the pair that proves the Phase 5 template generalizes.
    cross-platform leak with two. Fixed on both `ShopifyOrdersPage` and the new
    `TiktokOrdersPage`, with test coverage asserting the filter.
 
-**Not yet built (ASSUMPTION, will change as features land):** Phases 7-9's remaining
-marketplace integrations (Amazon, eBay, Walmart) — Phase 5/6 are their template.
+**Amazon SP-API integration (built, Phase 7):** third marketplace integration —
+structurally the most different from Shopify/TikTok of the three, driven entirely by
+how Amazon's own SP-API actually works, not by choice.
+1. **Schema** (`20260710191910_create_amazon_tokens.sql`): `amazon_tokens` mirrors
+   `shopify_tokens`/`tiktok_tokens`' zero-RLS shape, but `refresh_token` is
+   **brand-submitted** rather than Worker-obtained via an OAuth callback (see below) —
+   still written only via the service-role key, still never readable back out through
+   the Data API. Adds `marketplace_id` (every SP-API order call is scoped to a specific
+   Amazon marketplace, e.g. `ATVPDKIKX0DER` for the US) and a cached
+   `access_token`/`access_token_expires_at` pair (the 1-hour-lived LWA token minted from
+   `refresh_token`). `platform_orders` needed no schema change — its `platform` enum
+   already accepted `'amazon'`.
+2. **No OAuth install/callback flow.** Amazon's SP-API for a private/internal app uses
+   "self-authorization": the seller generates a long-lived refresh token directly in
+   Seller Central and hands it to the brand out of band, rather than our Worker hosting
+   a redirect the seller clicks through (unlike Shopify/TikTok, where our Worker builds
+   and owns that flow end to end). So `POST /amazon/connect` just accepts a
+   brand-submitted `{ refreshToken, marketplaceId }` body (bearer-authenticated like
+   every other brand-facing endpoint) and stores it — there is no `/amazon/install` or
+   `/amazon/callback`, and no `oauthState.ts` CSRF-binding usage at all for this
+   platform, since there's no redirect to bind. `AmazonConnectPage` is a paste-in
+   credentials form rather than a "Connect" button that navigates away, an accepted
+   trust-boundary consequence of Amazon's own documented flow (the seller is shown this
+   token specifically to hand to third-party apps), not a shortcut we introduced.
+3. **No SigV4 request signing.** SP-API required AWS IAM + Signature Version 4 on every
+   request historically; Amazon deprecated that requirement in Oct 2023 (confirmed via
+   multiple independent sources, including Amazon's own SP-API changelog) — requests now
+   need only the LWA access token in an `x-amz-access-token` header. Simpler than
+   TikTok's HMAC-SHA256 request signing, not a corner cut.
+4. **Worker service layer** (`worker/src/amazon/`): `client.ts` (`refreshAccessToken` —
+   LWA `grant_type=refresh_token`; `fetchOrders`/`fetchOrderItems` — Amazon's
+   `getOrderItems` is a **separate call per order**, unlike Shopify/TikTok where each
+   order's line items arrive inline, since an Amazon order object carries no line-item
+   array of its own), `supabaseAdmin.ts`, `sync.ts` (`ensureAccessToken` caches the
+   minted access token with a 60-second expiry skew so a sync run doesn't re-mint on
+   every call; `syncAmazonOrders` fans out one `getOrderItems` call per order to resolve
+   each order's first item's `SellerSKU`), `handlers.ts` (`handleStatus`/
+   `handleConnect`/`handleSync` — three routes, not five, since there's no
+   install/callback pair), `env.ts`/`types.ts` (field names verified against Amazon's own
+   `selling-partner-api-models` GitHub repo — see the ASSUMPTION note below). Same
+   `fetchImpl`-injection testing pattern as Shopify/TikTok — 37 more tests (185 total
+   across app+worker).
+5. **No webhook route.** Amazon's real near-real-time mechanism is the Notifications API
+   over SQS — a fundamentally different integration shape than a simple inbound HTTP
+   POST (would need an SQS queue + subscription, not a Worker route) — so this is
+   deferred to Phase 10 ("Order Sync Automation"), which already owns turning every
+   platform's manual-sync-only into real background sync. Not a gap unique to Amazon:
+   Shopify and TikTok are also manual-sync-only as of their own phases.
+6. **Routes**: `GET /amazon/status`, `POST /amazon/connect`, `POST /amazon/sync` —
+   dispatched from the same `worker/src/index.ts`, whose `Env` type now extends
+   `ShopifyWorkerEnv`, `TiktokWorkerEnv`, and `AmazonWorkerEnv`.
+7. **Frontend:** `/brand/amazon` (`AmazonConnectPage` — refresh-token + marketplace-id
+   form, per the self-authorization difference above), `/brand/amazon/orders`
+   (`AmazonOrdersPage`, built with the `.eq('platform', 'amazon')` filter from the start
+   — Phase 6's bug already taught this lesson). `ProviderOrdersPage` needed **no**
+   change, same as Phase 6.
+8. **ASSUMPTION / confidence note, better-grounded than TikTok's:** Amazon's docs portal
+   (`developer-docs.amazon.com`) also returned HTTP 403 from this sandbox (see
+   Landmines), but the `getOrders`/`getOrderItems` field names (`AmazonOrderId`,
+   `SellerSKU`, etc.) were verified against Amazon's own `selling-partner-api-models`
+   GitHub repo — a first-party, machine-readable schema source, not a secondary
+   description — and the LWA refresh flow + the SigV4 deprecation were each confirmed via
+   multiple independent sources. Still UNVERIFIED end-to-end against a live seller
+   account (needs the client's production refresh token), but on firmer footing than
+   Phase 6's TikTok ASSUMPTIONs.
+
+**Not yet built (ASSUMPTION, will change as features land):** Phases 8-9's remaining
+marketplace integrations (eBay, Walmart) — Phase 5/6's OAuth-redirect shape and Phase
+7's self-authorization shape are both now available templates; pick whichever matches
+each platform's actual auth model rather than defaulting to the OAuth-redirect one.
 
 ## Stack rules
 
@@ -338,18 +410,22 @@ marketplace integrations (Amazon, eBay, Walmart) — Phase 5/6 are their templat
   starting assumption, but MSW's Node-network-layer interception has no defined relationship
   to workerd's native `fetch`, and this dependency-injection boundary sidesteps the question
   entirely with no new dependency. Confirmed again in Phase 6's `worker/src/tiktok/` (49
-  more tests, same shape) — use this pattern for Phases 7-9's Amazon/eBay/Walmart
-  integrations too, rather than reaching for MSW in the Worker.
-- **Shared vs. per-platform Worker code (decided in Phase 6):** `worker/src/shared/`
-  holds primitives with no platform-specific logic (`hmac.ts`, `oauthState.ts` — moved
-  out of `shopify/` in Phase 6 once TikTok needed the exact same ones, see above).
-  Platform-specific modules (`client.ts`, `supabaseAdmin.ts`, `sync.ts`, `handlers.ts`,
-  `env.ts`, `types.ts`) stay duplicated one directory per platform rather than
-  abstracted behind a shared interface — each platform's wire format, auth flow, and
-  table shape differ enough (see Phase 6's TikTok-vs-Shopify differences write-up above)
-  that a shared abstraction would be premature after only two platforms. Revisit once
-  Phase 7-9 make the actual overlap/divergence pattern clear across four platforms
-  instead of guessing from two.
+  more tests) and Phase 7's `worker/src/amazon/` (37 more tests, 185 total across
+  app+worker) — use this pattern for Phases 8-9's eBay/Walmart integrations too, rather
+  than reaching for MSW in the Worker.
+- **Shared vs. per-platform Worker code (decided in Phase 6, held through Phase 7):**
+  `worker/src/shared/` holds primitives with no platform-specific logic (`hmac.ts`,
+  `oauthState.ts` — moved out of `shopify/` in Phase 6 once TikTok needed the exact same
+  ones, see above). Platform-specific modules (`client.ts`, `supabaseAdmin.ts`,
+  `sync.ts`, `handlers.ts`, `env.ts`, `types.ts`) stay duplicated one directory per
+  platform rather than abstracted behind a shared interface — Phase 7 made this the
+  obviously correct call, not just a two-platform guess: Amazon's auth model
+  (self-authorization, no OAuth redirect, no request signing, no webhook) differs from
+  Shopify/TikTok's so fundamentally that even `oauthState.ts` doesn't apply to it. A
+  shared interface across all three would have to be either near-empty or leaky. Revisit
+  once Phase 8-9 (eBay, Walmart) land — if either turns out to share Amazon's
+  self-authorization shape rather than Shopify/TikTok's OAuth-redirect shape, that's a
+  second data point for which parts (if any) are actually worth factoring out.
 
 ## Environment & secrets
 
@@ -368,8 +444,11 @@ marketplace integrations (Amazon, eBay, Walmart) — Phase 5/6 are their templat
     `WORKER_URL` (the Worker's own URL, used as the Shopify OAuth `redirect_uri` — TikTok has
     no equivalent var, see Phase 6 write-up), `TIKTOK_APP_KEY`, `TIKTOK_APP_SECRET` (also signs
     the OAuth install-state token and, per the Phase 6 ASSUMPTION notes, request/webhook
-    signatures)
-  - More will be added per marketplace integration (Amazon/eBay/Walmart client IDs and
+    signatures), `AMAZON_CLIENT_ID`, `AMAZON_CLIENT_SECRET` (LWA app credentials, used only
+    to refresh a brand-submitted refresh token into a short-lived access token — no
+    APP_URL/WORKER_URL equivalent either, since Amazon's self-authorization model has no
+    OAuth redirect flow at all, see Phase 7 write-up)
+  - More will be added per marketplace integration (eBay/Walmart client IDs and
     secrets) — each addition updates this list and the relevant `.example` file.
 
 ## Definition of Done
@@ -485,6 +564,20 @@ A change is done when **all** are true:
   comments against the first-party spec before any live TikTok credential is wired up —
   don't assume the unit tests passing means the wire format is correct, only that the
   code is internally consistent with itself.
+- **Amazon's SP-API docs portal (`developer-docs.amazon.com`) also returned HTTP 403**
+  when fetched directly via `WebFetch` from this sandbox, same failure mode as TikTok's
+  docs site above. Unlike TikTok, though, a first-party fallback existed: Amazon
+  publishes its API schemas as machine-readable JSON in the public
+  `amzn/selling-partner-api-models` GitHub repo, and `raw.githubusercontent.com` was
+  fetchable — so `worker/src/amazon/types.ts`'s field names (`AmazonOrderId`,
+  `SellerSKU`, etc.) come from that first-party schema, not a secondary description.
+  The LWA refresh-token flow and the Oct 2023 SigV4-deprecation changelog were each
+  confirmed via multiple independent secondary sources (the changelog page itself also
+  403'd). Net effect: Phase 7's Amazon integration rests on firmer evidence than Phase
+  6's TikTok integration, but is still UNVERIFIED end-to-end against a live seller
+  account — same posture, better grounding. If a docs-portal fetch ever works from a
+  future session, reconcile the LWA/SigV4 claims against the first-party page before any
+  live Amazon credential is wired up.
 
 ## Overrides
 

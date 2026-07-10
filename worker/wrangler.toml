@@ -15,3 +15,9 @@ compatibility_flags = ["nodejs_compat"]
 # Phase 6 (TikTok Shop) additionally needs: TIKTOK_APP_KEY, TIKTOK_APP_SECRET
 # (no WORKER_URL equivalent — TikTok's OAuth redirect URI is registered in
 # the Partner Center, not passed per request; see worker/src/tiktok/client.ts).
+#
+# Phase 7 (Amazon SP-API) additionally needs: AMAZON_CLIENT_ID,
+# AMAZON_CLIENT_SECRET (the LWA app credentials used to mint short-lived
+# access tokens from a brand-submitted refresh token — no APP_URL/WORKER_URL
+# equivalent either, since there is no OAuth redirect flow at all for
+# Amazon's self-authorization model; see worker/src/amazon/handlers.ts).

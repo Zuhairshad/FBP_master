@@ -31,6 +31,12 @@ export function BrandDashboardPage() {
         <Link to="/brand/tiktok/orders" className={NAV_LINK_CLASS}>
           View TikTok orders
         </Link>
+        <Link to="/brand/amazon" className={NAV_LINK_CLASS}>
+          Connect Amazon
+        </Link>
+        <Link to="/brand/amazon/orders" className={NAV_LINK_CLASS}>
+          View Amazon orders
+        </Link>
       </div>
     </DashboardShell>
   )
