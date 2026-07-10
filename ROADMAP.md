@@ -18,34 +18,37 @@ pnpm workspace scaffold (`app/` Vite+React+TS+Tailwind, `worker/` Cloudflare Wor
 
 ---
 
-## Phase 1 — Auth & Roles Foundation `[ ]`
+## Phase 1 — Auth & Roles Foundation `[x]`
 
 **Goal:** a user can sign up/sign in via Supabase Auth, lands with exactly one role
 (brand / provider / admin), and RLS enforces that from the very first table onward.
 
-**Blocked on:** Supabase project URL + anon key (to test against the hosted project) —
-can start entirely against local `supabase start` in the meantime.
+Merged to `main` via PR #3.
 
-- [ ] Decide + document: `profiles` table (id → `auth.users.id`, `role` enum, display
+- [x] Decide + document: `profiles` table (id → `auth.users.id`, `role` enum, display
       name, company name) + Postgres trigger to auto-create a profile row on signup
-- [ ] Migration: `role` enum (`brand`, `provider`, `admin`), `profiles` table, trigger
-- [ ] RLS policies: anon → none; authenticated user → read/update own profile only;
+- [x] Migration: `role` enum (`brand`, `provider`, `admin`), `profiles` table, trigger
+- [x] RLS policies: anon → none; authenticated user → read/update own profile only;
       no cross-user access (admin read-all deferred until Phase 12 unless trivial now)
-- [ ] RLS tests: anon denied, user A full access to own row, user B denied on A's row
-- [ ] Frontend: sign-up form (role picker: brand or provider — admin is seeded, not
+- [x] RLS tests: anon denied, user A full access to own row, user B denied on A's row —
+      written, **not yet executed against a live Postgres** (see Landmines in `CLAUDE.md`)
+- [x] Frontend: sign-up form (role picker: brand or provider — admin is seeded, not
       self-serve), sign-in, sign-out, session hook (`useAuth` or equivalent)
-- [ ] Route guard: unauthenticated → sign-in; authenticated → role-based landing
+- [x] Route guard: unauthenticated → sign-in; authenticated → role-based landing
       (`/brand`, `/provider`, `/admin` placeholder dashboards, empty shells for now)
-- [ ] `pnpm db:types` regenerated and committed alongside the migration
-- [ ] Floor + RLS policy tests + component tests for auth forms + build
-- [ ] Eyes: sign-up/sign-in pages, desktop + mobile
+- [x] `pnpm db:types` — hand-authored interim types committed; **live regeneration still
+      pending**, same DB blocker
+- [x] Floor + RLS policy tests + component tests for auth forms + build
+- [x] Eyes: sign-up/sign-in pages, desktop + mobile
 
 ---
 
-## Phase 2 — Core Data Model `[~]`
+## Phase 2 — Core Data Model `[x]`
 
 **Goal:** provider can set up a warehouse profile with services/storage spaces; brand
 can create product listings with a Master SKU. No cross-tenant leakage.
+
+Merged to `main` via PR #4.
 
 - [x] Migration: `warehouses`, `warehouse_services`, `storage_spaces` (provider-owned)
 - [x] Migration: `products` (brand-owned: `master_sku`, name, description, etc.)
