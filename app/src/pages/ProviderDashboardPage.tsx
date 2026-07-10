@@ -14,6 +14,9 @@ export function ProviderDashboardPage() {
         <Link to="/provider/inventory" className="text-sm underline">
           Brand inventory
         </Link>
+        <Link to="/provider/orders" className="text-sm underline">
+          Brand orders
+        </Link>
       </div>
     </DashboardShell>
   )

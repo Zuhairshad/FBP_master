@@ -2,13 +2,14 @@
 // 20260710130555_create_warehouses.sql, 20260710130605_create_products.sql,
 // 20260710133050_extend_directory_visibility.sql (RLS-only, no shape change),
 // 20260710133104_create_booking_requests.sql, 20260710133106_create_inventory.sql,
-// and 20260710135941_create_sku_mappings.sql.
+// 20260710135941_create_sku_mappings.sql, and 20260710161735_create_shopify_tables.sql.
 // Regenerate with `pnpm db:types` once local/hosted Supabase is reachable —
 // this file only exists so the app can typecheck against the schema before that.
 
 export type UserRole = 'brand' | 'provider' | 'admin'
 export type BookingStatus = 'pending' | 'approved' | 'rejected'
 export type MarketplacePlatform = 'amazon' | 'tiktok' | 'ebay' | 'walmart' | 'shopify'
+export type PlatformOrderStatus = 'pending' | 'resolved' | 'unmapped'
 
 export interface Database {
   public: {
@@ -232,6 +233,69 @@ export interface Database {
         }
         Relationships: []
       }
+      shopify_tokens: {
+        Row: {
+          id: string
+          brand_id: string
+          shop_domain: string
+          access_token: string
+          scope: string
+          last_synced_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          shop_domain: string
+          access_token: string
+          scope: string
+          last_synced_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          brand_id?: string
+          shop_domain?: string
+          access_token?: string
+          scope?: string
+          last_synced_at?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      platform_orders: {
+        Row: {
+          id: string
+          brand_id: string
+          platform: MarketplacePlatform
+          platform_order_id: string
+          raw_data: unknown
+          resolved_master_sku: string | null
+          status: PlatformOrderStatus
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          platform: MarketplacePlatform
+          platform_order_id: string
+          raw_data: unknown
+          resolved_master_sku?: string | null
+          status?: PlatformOrderStatus
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          brand_id?: string
+          platform?: MarketplacePlatform
+          platform_order_id?: string
+          raw_data?: unknown
+          resolved_master_sku?: string | null
+          status?: PlatformOrderStatus
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
@@ -239,6 +303,7 @@ export interface Database {
       user_role: UserRole
       booking_status: BookingStatus
       marketplace_platform: MarketplacePlatform
+      platform_order_status: PlatformOrderStatus
     }
     CompositeTypes: Record<string, never>
   }

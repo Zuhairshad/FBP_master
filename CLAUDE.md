@@ -28,7 +28,11 @@ so brands can browse providers/warehouses, a brand↔provider booking request fl
 (`booking_requests`, pending/approved/rejected), and brand-owned `inventory` that becomes
 visible to a provider once a booking is approved. Phase 4 built on top of that: `sku_mappings`
 resolves a marketplace SKU back to a brand's Master SKU, brand-owned via a trigger-derived
-`brand_id`. No marketplace integrations exist yet. No real users, no real money.
+`brand_id`. Phase 5 built on top of that: the first real marketplace integration — a brand
+connects a Shopify store via OAuth, orders sync (manually or via webhook) into a unified
+`platform_orders` table resolved through Phase 4's SKU mapping, and the Worker (`worker/`)
+went from an empty scaffold to a real service layer for the first time. No real users, no
+real money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
@@ -160,8 +164,55 @@ delete; the roadmap's Phase 4 goal specifies "bulk entry", which this does **not
 (see `ROADMAP.md` scope note) — single-row entry only, matching `ProductsPage`/
 `InventoryPage`'s existing form pattern.
 
-**Not yet built (ASSUMPTION, will change as features land):** the marketplace integrations
-themselves (Phase 5+) — the target shape carried over from the prior version's design.
+**Shopify integration (built, Phase 5):** first real marketplace integration, and the first
+time `worker/` holds actual logic instead of a `/health` stub.
+1. **Schema** (`20260710161735_create_shopify_tables.sql`): `shopify_tokens` (brand-owned
+   OAuth token, one per brand — unique on `brand_id`) and `platform_orders` (unified order
+   table every future marketplace writes into: `brand_id`, `platform`, `platform_order_id`
+   unique per platform, `raw_data` jsonb, `resolved_master_sku`, `status`). Both tables are
+   written **only** by the Worker via the service-role key — no authenticated client ever
+   inserts a row directly, so unlike `sku_mappings`/`booking_requests`, `platform_orders.brand_id`
+   is a plain column, not trigger-derived (there's no client-supplied value to protect against
+   when RLS is bypassed entirely for every write). `shopify_tokens` has RLS enabled with
+   **zero policies at all** — stricter than every other table's owner-only pattern — because
+   nothing in it (access_token especially) should ever be readable through the Data API, even
+   by its own owning brand; only `service_role` bypasses RLS. `platform_orders` has real SELECT
+   policies: brand owns its own rows, and a provider sees a brand's orders via an approved
+   `booking_requests` row connecting them (same predicate shape as
+   `inventory_select_via_approved_booking` from Phase 3) — not warehouse-scoped the way
+   inventory is, since an order isn't tied to a specific storage space (ASSUMPTION, revisit if
+   Phase 11's fulfillment workflow needs finer granularity). `platform_orders.status` reflects
+   only SKU-resolution outcome (`pending`/`resolved`/`unmapped`), not fulfillment — that's
+   Phase 11.
+2. **Worker service layer** (`worker/src/shopify/`): `client.ts` (Shopify OAuth URL-building,
+   code exchange, order fetch, both HMAC verifications), `hmac.ts` (shared HMAC-SHA256 +
+   constant-time-compare primitive — webhook signatures are base64, OAuth callback signatures
+   are hex, same underlying operation), `oauthState.ts` (the OAuth `state` param is a
+   self-signed, HMAC'd CSRF token carrying `brandId + expiry` — the Worker has no KV/session
+   store, so this is how `/shopify/callback` knows which brand an OAuth redirect belongs to
+   without trusting an unauthenticated GET's query params directly), `supabaseAdmin.ts`
+   (service-role client + all DB reads/writes), `sync.ts` (fetch → resolve first line item's
+   SKU via Phase 4's `sku_mappings` → upsert `platform_orders`), `handlers.ts` (the five HTTP
+   entry points, see below), `env.ts`/`types.ts`. Every function that makes a network call
+   takes an injected `fetchImpl: typeof fetch = fetch` — see the Testing landmine below for why.
+3. **Routes** (dispatched from `worker/src/index.ts`): `GET /shopify/status` (brand's only way
+   to read connection state, since `shopify_tokens` has zero RLS policies — returns
+   `shop_domain`/`last_synced_at` only, never `access_token`), `POST /shopify/install`
+   (bearer-token-authenticated; returns a signed-state authorize URL for the browser to
+   navigate to), `GET /shopify/callback` (Shopify's OAuth redirect — authenticated by the
+   signed state plus Shopify's own callback HMAC, not a bearer token, since a browser redirect
+   can't carry one), `POST /shopify/sync` (bearer-token-authenticated manual sync), `POST
+   /webhooks/shopify/orders` (Shopify's order webhook — authenticated by the body HMAC only).
+4. **Frontend:** `/brand/shopify` (`ShopifyConnectPage` — connect form when disconnected,
+   status + "Sync now" when connected), `/brand/shopify/orders` (`ShopifyOrdersPage`),
+   `/provider/orders` (`ProviderOrdersPage`, booking-gated read-only). `app/src/lib/worker.ts`
+   is the one place the browser calls the Worker via `fetch` with the Supabase session's
+   `access_token` as a bearer token — everything else in `app/` still talks to Supabase
+   directly per the Architecture facts rule. **Scope note:** no separate order-detail route;
+   detail is inline in the list row, matching every other list page in this repo.
+
+**Not yet built (ASSUMPTION, will change as features land):** Phases 6-9's remaining
+marketplace integrations (TikTok, Amazon, eBay, Walmart) — Phase 5 is their template.
 
 ## Stack rules
 
@@ -216,6 +267,16 @@ themselves (Phase 5+) — the target shape carried over from the prior version's
   `{ cloudflareTest }` from the package root, pass it as a Vitest `plugins: [cloudflareTest({ wrangler:
   { configPath: './wrangler.toml' } })]` entry in a config built with `defineConfig` from
   `vitest/config`. Don't reintroduce the old `/config` import from an older tutorial/example.
+- **Testing outbound `fetch` calls (Phase 5):** every function in `worker/src/shopify/` that
+  hits the network (Shopify's API, or Supabase via `supabaseAdmin.ts`) takes a trailing
+  `fetchImpl: typeof fetch = fetch` parameter, forwarded into supabase-js's own
+  `createClient(url, key, { global: { fetch } })` option for the admin-client calls. Verified
+  empirically in this sandbox (see Landmines) that this works cleanly inside
+  `@cloudflare/vitest-pool-workers`' workerd runtime — TESTING.md's MSW convention was the
+  starting assumption, but MSW's Node-network-layer interception has no defined relationship
+  to workerd's native `fetch`, and this dependency-injection boundary sidesteps the question
+  entirely with no new dependency. Use this pattern for Phases 6-9's `TiktokApiService`/
+  `AmazonSpApiService`/etc. too, rather than reaching for MSW in the Worker.
 
 ## Environment & secrets
 
@@ -224,10 +285,16 @@ themselves (Phase 5+) — the target shape carried over from the prior version's
   machine.
 - Never print secret values in logs, test output, or chat. Refer to them by name.
 - Required vars today:
-  - `app/.env.local`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`
-  - `worker/.dev.vars`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-  - More will be added per marketplace integration (Amazon/eBay/Walmart/Shopify/TikTok client
-    IDs and secrets) — each addition updates this list and the relevant `.example` file.
+  - `app/.env.local`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_WORKER_URL`
+    (the Worker's own URL — `app/src/lib/worker.ts` calls it directly via `fetch` with the
+    Supabase session's `access_token` as a bearer token; needed even for local dev since
+    `App.tsx` imports it eagerly, same as `lib/supabase.ts`'s existing throw-if-missing guard)
+  - `worker/.dev.vars`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SHOPIFY_CLIENT_ID`,
+    `SHOPIFY_CLIENT_SECRET` (also signs the OAuth install-state token and verifies
+    webhook/callback HMACs), `SHOPIFY_SCOPES`, `APP_URL` (where the browser lands after OAuth),
+    `WORKER_URL` (the Worker's own URL, used as the OAuth `redirect_uri`)
+  - More will be added per marketplace integration (Amazon/eBay/Walmart/TikTok client IDs and
+    secrets) — each addition updates this list and the relevant `.example` file.
 
 ## Definition of Done
 
@@ -287,6 +354,20 @@ A change is done when **all** are true:
   guidance (and confirmed while writing `supabase/tests/profiles_rls.test.sql`) it instead
   silently matches zero rows (`UPDATE` requires a `SELECT`-visible row first). Test for the row
   count via `GET DIAGNOSTICS ... = ROW_COUNT`, not `throws_ok`.
+- **Phase 5 risk that turned out fine:** went in assuming MSW might not intercept network calls
+  made by code running inside `@cloudflare/vitest-pool-workers`' workerd isolate (MSW patches
+  Node's HTTP layer; workerd's `fetch` is a separate native implementation with no defined
+  relationship to it). Rather than find out the hard way, sidestepped it: every Worker function
+  that calls `fetch` (directly, or via supabase-js's `global.fetch` option) takes an injected
+  `fetchImpl` parameter defaulting to global `fetch`. Verified empirically — 64 worker tests,
+  all passing, all in the real Workers runtime, zero new test dependencies. See the Cloudflare
+  Workers stack rule above; reuse this pattern for Phases 6-9 instead of reaching for MSW.
+- `app/vite.config.ts`'s `test.env` block (placeholder `VITE_*` vars so module-load-time
+  `throw`s in `lib/*.ts` don't fire under Vitest) needs a new entry **every time a new
+  `lib/*.ts` file adopts the same "throw if the env var is missing" pattern** — `lib/worker.ts`
+  (Phase 5) needed `VITE_WORKER_URL` added alongside the existing Supabase ones, or
+  `App.test.tsx` fails at import time despite not touching Shopify at all (`App.tsx` imports
+  every page eagerly, including ones behind roles the test never assumes).
 
 ## Overrides
 

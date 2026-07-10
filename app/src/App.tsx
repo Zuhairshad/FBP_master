@@ -15,6 +15,9 @@ import { InventoryPage } from './pages/InventoryPage'
 import { ProviderBookingsPage } from './pages/ProviderBookingsPage'
 import { ProviderInventoryPage } from './pages/ProviderInventoryPage'
 import { SkuMappingsPage } from './pages/SkuMappingsPage'
+import { ShopifyConnectPage } from './pages/ShopifyConnectPage'
+import { ShopifyOrdersPage } from './pages/ShopifyOrdersPage'
+import { ProviderOrdersPage } from './pages/ProviderOrdersPage'
 
 function App() {
   return (
@@ -33,6 +36,8 @@ function App() {
               <Route path="/brand/bookings" element={<BookingsPage />} />
               <Route path="/brand/inventory" element={<InventoryPage />} />
               <Route path="/brand/sku-mappings" element={<SkuMappingsPage />} />
+              <Route path="/brand/shopify" element={<ShopifyConnectPage />} />
+              <Route path="/brand/shopify/orders" element={<ShopifyOrdersPage />} />
             </Route>
 
             <Route element={<RequireRole role="provider" />}>
@@ -40,6 +45,7 @@ function App() {
               <Route path="/provider/warehouses" element={<WarehousesPage />} />
               <Route path="/provider/bookings" element={<ProviderBookingsPage />} />
               <Route path="/provider/inventory" element={<ProviderInventoryPage />} />
+              <Route path="/provider/orders" element={<ProviderOrdersPage />} />
             </Route>
 
             <Route element={<RequireRole role="admin" />}>
