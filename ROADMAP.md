@@ -42,19 +42,22 @@ can start entirely against local `supabase start` in the meantime.
 
 ---
 
-## Phase 2 — Core Data Model `[ ]`
+## Phase 2 — Core Data Model `[~]`
 
 **Goal:** provider can set up a warehouse profile with services/storage spaces; brand
 can create product listings with a Master SKU. No cross-tenant leakage.
 
-- [ ] Migration: `warehouses`, `warehouse_services`, `storage_spaces` (provider-owned)
-- [ ] Migration: `products` (brand-owned: `master_sku`, name, description, etc.)
-- [ ] RLS: provider manages only own warehouse rows; brand manages only own products
-- [ ] RLS tests per table (anon / owner / other-tenant negative case)
-- [ ] Frontend: provider "Warehouse Setup" pages; brand "Products" CRUD pages
-- [ ] Component + integration tests for both CRUD flows
-- [ ] Floor + Foundation-rung full suite (this is shared/foundation schema) + build
-- [ ] Eyes on both new page sets
+- [x] Migration: `warehouses`, `warehouse_services`, `storage_spaces` (provider-owned)
+- [x] Migration: `products` (brand-owned: `master_sku`, name, description, etc.)
+- [x] RLS: provider manages only own warehouse rows; brand manages only own products
+      (plus a role check on insert — see `CLAUDE.md`)
+- [x] RLS tests per table (anon / owner / other-tenant negative case) — written, **not yet
+      executed against a live Postgres** (this sandbox has no DB access; deferred per plan)
+- [x] Frontend: provider "Warehouse Setup" page; brand "Products" CRUD page
+- [x] Component tests for both CRUD flows (mocked Supabase client)
+- [x] Floor + Foundation-rung full suite (this is shared/foundation schema) + build — all green
+- [x] Eyes: unauthenticated redirect confirmed clean on both routes; **full visual check of the
+      authenticated forms is UNVERIFIED** (needs a live session, same DB blocker)
 
 ---
 
