@@ -70,11 +70,13 @@ encountered across five marketplaces. No real users, no real money.
 - `app/` — React 19 + Vite + TypeScript SPA. Tailwind v4 via `@tailwindcss/vite`. `react-router`
   for client-side routing. `src/lib/supabase.ts` is the **browser** Supabase client (publishable
   key only, RLS-enforced). `src/hooks/` (auth context/provider/hook), `src/components/`
-  (route guards, shared UI), `src/pages/` (routed pages, one subfolder per role —
-  `pages/brand/`, `pages/provider/`, `pages/admin/` — plus role-agnostic pages, `SignInPage`/
-  `SignUpPage`/`RoleRedirect`, at `pages/` root since they run before a role is known),
-  `src/types/database.ts` (Supabase types — regenerate with `pnpm db:types`, never hand-edit
-  once real).
+  (route guards, shared UI). Routed pages live in top-level, role-scoped directories —
+  `src/brand/`, `src/provider/`, `src/admin/` — plus `src/products/` (product catalog
+  management, a brand-only feature but kept as its own top-level concern rather than folded
+  into `brand/`). `src/pages/` is now reserved for the three role-agnostic pages that run
+  *before* a role is known — `SignInPage`, `SignUpPage`, `RoleRedirect` — not a general pages
+  directory. `src/types/database.ts` (Supabase types — regenerate with `pnpm db:types`, never
+  hand-edit once real).
 - `worker/` — Cloudflare Worker (TypeScript). `src/index.ts` is the fetch handler — this is
   where all privileged logic will live: marketplace webhooks, OAuth token refresh, order
   sync, anything holding the Supabase service-role key or marketplace secrets.
@@ -847,6 +849,23 @@ A change is done when **all** are true:
   moving any file with `vi.mock(<relative path>, ...)` calls, grep for
   `vi.mock\(.*\.\./` in the moved files specifically — it's invisible to both
   the type checker and the linter, only the test run catches it.
+- **The page reorg above was actually two rounds, not one** — first into
+  `pages/{brand,provider,admin}/` (nested one level under `pages/`), then
+  promoted again to top-level `src/{brand,provider,admin}/` plus a new
+  `src/products/` once it became clear "separate folders" meant top-level,
+  not nested, and that product catalog management should be its own
+  concern rather than folded into `brand/` even though only the brand role
+  uses it today. Both rounds needed the exact same `vi.mock`-path fix from
+  the entry above (moving one directory level changes import depth either
+  way). **Current, settled structure:** `src/brand/`, `src/provider/`,
+  `src/admin/`, `src/products/` for routed pages; `src/pages/` holds only
+  the three role-agnostic pages (`SignInPage`/`SignUpPage`/`RoleRedirect`)
+  that run before a role exists; `src/components/`, `src/hooks/`,
+  `src/lib/`, `src/types/` stay shared across every role, not duplicated
+  per folder. The tell for next time: when a reorg request uses a word
+  like "separate" or "own folder," confirm the exact directory depth and
+  scope intended before executing — a folder-structure change is cheap to
+  redo once, expensive to redo twice.
 
 ## Overrides
 
