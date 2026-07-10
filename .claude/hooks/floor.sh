@@ -43,9 +43,27 @@ if [ "$MODE" = "file" ]; then
     *) exit 0 ;;
   esac
   [ -f "$FILE" ] || exit 0
-  if [ -f package.json ]; then
-    OUT="$(npx --no-install eslint --max-warnings=0 "$FILE" 2>&1)" \
-      || fail "eslint: $FILE" "$OUT"
+
+  # Find the nearest workspace package (walk up from the file's directory looking
+  # for a package.json) and run THAT package's own lint script — never hardcode a
+  # specific linter here, repos differ (oxlint/eslint/biome) and single-package
+  # vs. monorepo layout changes where the tool actually lives.
+  ROOT="$(pwd -P)"
+  DIR="$(cd "$(dirname "$FILE")" && pwd -P)"
+  PKG_DIR=""
+  while :; do
+    if [ -f "$DIR/package.json" ]; then
+      PKG_DIR="$DIR"
+      break
+    fi
+    [ "$DIR" = "$ROOT" ] && break
+    PARENT="$(dirname "$DIR")"
+    [ "$PARENT" = "$DIR" ] && break
+    DIR="$PARENT"
+  done
+
+  if [ -n "$PKG_DIR" ]; then
+    OUT="$(cd "$PKG_DIR" && npm run --if-present lint 2>&1)" || fail "lint: $PKG_DIR" "$OUT"
   fi
   exit 0
 fi

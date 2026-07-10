@@ -162,6 +162,13 @@ A change is done when **all** are true:
   `sharp`) get silently skipped by pnpm until approved. They're pre-approved via
   `onlyBuiltDependencies` in `pnpm-workspace.yaml` — if a fresh install ever behaves as if
   `wrangler`/`vitest-pool-workers` didn't build, check that list before debugging further.
+- `.claude/hooks/floor.sh` (PostToolUse "file" mode) originally hardcoded `npx --no-install
+  eslint` on every edited `.ts`/`.tsx` file. This repo has never installed ESLint anywhere —
+  we use `oxlint` (see Overrides) — so that `npx` call was silently resolving to an unrelated
+  eslint binary from outside the repo and failing on a missing `eslint.config.js`. Fixed to
+  walk up from the edited file to the nearest `package.json` and run **that package's own**
+  `lint` script, so it works for any linter and both `app/` and `worker/` without hardcoding a
+  tool name.
 
 ## Overrides
 
