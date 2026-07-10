@@ -34,7 +34,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -54,7 +54,7 @@ jobs:
       # - run: supabase db reset
 
       - name: Typecheck
-        run: pnpm tsc --noEmit
+        run: pnpm typecheck
 
       - name: Lint (zero warnings)
         run: pnpm lint
@@ -65,18 +65,14 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
+      - name: Worker dry-run deploy
+        run: pnpm --filter worker deploy:dry-run
 
-      # Full e2e, including visual regression (@visual specs compare against
-      # committed Linux baselines — generate baselines HERE, not on macOS).
-      # Assumes playwright.config webServer boots the app for tests.
-      - name: E2E + visual regression
-        run: pnpm exec playwright test
-
-      # ---- Cloudflare Worker validation (uncomment for repos with workers/)
-      # - name: Worker dry-run deploy
-      #   run: pnpm exec wrangler deploy --dry-run
+      # ---- E2E + visual regression (uncomment once real routes + e2e/visual.spec.ts exist)
+      # - name: Install Playwright Chromium
+      #   run: pnpm exec playwright install --with-deps chromium
+      # - name: E2E + visual regression
+      #   run: pnpm exec playwright test
 
       - name: Upload failure evidence (screenshots, traces, report)
         if: failure()

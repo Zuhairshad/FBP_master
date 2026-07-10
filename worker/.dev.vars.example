@@ -1,0 +1,4 @@
+# Local dev secrets for `wrangler dev` — copy to .dev.vars (gitignored).
+# Production secrets go through `wrangler secret put <NAME>`, never here.
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=

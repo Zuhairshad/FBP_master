@@ -1,13 +1,6 @@
 <!-- INSTALL: <repo-root>/CLAUDE.md  (commit it — this is shared team knowledge) -->
 
-# CLAUDE.md — {{PROJECT_NAME}}
-
-> **GENERATOR NOTE — read first, delete when done.**
-> If any `{{placeholder}}` remains in this file, do not start feature work. Run the
-> **Recon: full-repo** playbook from `SKILLS.md` and fill every section **from evidence** —
-> read `package.json`, lockfile, `tsconfig.json`, `wrangler.toml`, `supabase/`, CI config,
-> and the source tree. Never invent a command; every command below must have been executed
-> or read from a script definition. A wrong CLAUDE.md is worse than none: agents trust it.
+# CLAUDE.md — FBP (Fulfillment By People) — rebuild
 
 This file holds **facts about this repo**. Discipline (evidence, recon, verification ladder,
 teaching) comes from the global contract and applies here in full.
@@ -22,77 +15,122 @@ binding, not reference material. (Sanity-check once per machine with `/memory`.)
 
 ## What this is
 
-{{One paragraph: the problem, the users, current state (prototype / production / migrating). Include what "production" means here — real users? real money?}}
+FBP (Fulfillment By People) is a multi-platform fulfillment management SaaS: it connects
+Brands (sellers) with Fulfillment Providers (warehouse owners) and syncs orders from
+marketplaces (Amazon, TikTok, eBay, Walmart, Shopify) into the provider's dashboard. This
+repo is a **from-scratch rebuild** of an existing PHP/Laravel + React version on a new stack
+(React/Vite SPA + Supabase + Cloudflare Workers) — see `Overrides` for why. **Current state:
+bare scaffold.** No auth, no dashboards, no marketplace integrations exist yet. No real users,
+no real money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
 | Task | Command |
 |---|---|
-| Dev server | `{{pnpm dev}}` |
-| Typecheck | `{{pnpm tsc --noEmit}}` |
-| Lint | `{{pnpm lint}}` |
-| Unit/integration tests | `{{pnpm test}}` |
-| Single test file | `{{pnpm vitest run path/to/file.test.ts}}` |
-| E2E | `{{pnpm playwright test}}` |
-| E2E smoke only | `{{pnpm playwright test --grep @smoke}}` |
-| Build | `{{pnpm build}}` |
-| DB: new migration | `{{supabase migration new <name>}}` |
-| DB: apply locally | `{{supabase db reset}}` |
-| DB: regen types | `{{supabase gen types typescript --local > src/types/database.ts}}` |
-| Worker: local | `{{wrangler dev}}` |
-| Worker: validate deploy | `{{wrangler deploy --dry-run}}` |
+| Dev server (app) | `pnpm dev:app` |
+| Dev server (worker) | `pnpm dev:worker` |
+| Typecheck (all) | `pnpm typecheck` |
+| Lint (all) | `pnpm lint` |
+| Unit/integration tests (all) | `pnpm test` |
+| Single test file | `pnpm --filter app exec vitest run <path>` (or `--filter worker`) |
+| E2E | not yet wired — no routes exist; see `e2e/visual.spec.example.ts` |
+| Build (all) | `pnpm build` |
+| DB: new migration | `pnpm db:new <name>` |
+| DB: apply locally | `pnpm db:reset` (requires Docker + `supabase start`) |
+| DB: regen types | `pnpm db:types` (writes `app/src/types/database.ts`) |
+| Worker: local | `pnpm dev:worker` |
+| Worker: validate deploy | `pnpm --filter worker deploy:dry-run` |
 
 ## Repo map
 
-{{Top-level directories, one line each. Where features live, where tests live, where shared code lives. Example:
-- `app/` — Next.js App Router routes and pages
-- `src/lib/` — shared logic (pure where possible)
-- `src/components/` — React components
-- `workers/` — Cloudflare Workers
-- `supabase/migrations/` — the only legitimate way schema changes
-- `e2e/` — Playwright specs}}
+- `app/` — React 19 + Vite + TypeScript SPA. Tailwind v4 via `@tailwindcss/vite`. `src/lib/supabase.ts`
+  is the **browser** Supabase client (anon key only, RLS-enforced).
+- `worker/` — Cloudflare Worker (TypeScript). `src/index.ts` is the fetch handler — this is
+  where all privileged logic will live: marketplace webhooks, OAuth token refresh, order
+  sync, anything holding the Supabase service-role key or marketplace secrets.
+- `supabase/` — local Supabase config (`config.toml`) and `migrations/` — the only legitimate
+  way schema changes happen.
+- `.claude/` — engineering-os hooks (`floor.sh`, `commit-gate.sh`, `remind.sh`) and the `/task`
+  command.
+- `e2e/` — Playwright specs. Currently only `visual.spec.example.ts` — rename to `visual.spec.ts`
+  and list real routes once pages exist.
+- `scripts/eyes.mjs` — dev-loop UI screenshot + console-error check (desktop + mobile).
 
 ## Architecture facts
 
-{{The data flow in text: e.g. "Browser → Next.js server action → Supabase (RLS) → revalidate. Async work: Supabase webhook → CF Worker → external API." Auth model: who can do what, where it's enforced. External services and which env vars they need.}}
+Browser (`app/`) talks to Supabase directly with the anon key for reads/writes authorized by
+Postgres RLS — no custom API layer for simple CRUD. Anything privileged — calling
+Amazon SP-API / eBay / Walmart / Shopify / TikTok APIs, refreshing OAuth tokens, receiving
+per-brand marketplace webhooks, running scheduled order sync — goes through the Cloudflare
+Worker (`worker/`), which holds the service-role key and per-marketplace secrets via
+`wrangler secret put` (`.dev.vars` locally, gitignored).
+
+**Not yet built (ASSUMPTION, will change as features land):** auth model (brand/provider/admin
+roles), the SKU-mapping schema, and the marketplace integrations themselves. Nothing below
+this line is implemented — it's the target shape carried over from the prior version's design.
 
 ## Stack rules
 
-Delete sections that don't apply to this repo.
-
 ### TypeScript
-- `strict` stays on. Never silence an error with `any`, `as`, or `@ts-ignore` — fix the type. If an escape hatch is genuinely required, it carries a comment explaining why.
-- Generated types are the source of truth (`{{src/types/database.ts}}` from Supabase). Never hand-edit generated files; regenerate.
-- Exhaustive `switch` over unions with a `never` default. Model states with discriminated unions, not boolean flags.
+- `strict` is on in both `app/` and `worker/` — verified in `tsconfig.app.json` /
+  `tsconfig.node.json` / `worker/tsconfig.json`. Never silence an error with `any`, `as`, or
+  `@ts-ignore` — fix the type.
+- Generated types are the source of truth (`app/src/types/database.ts` from Supabase, once
+  generated). Never hand-edit; regenerate with `pnpm db:types`.
+- Exhaustive `switch` over unions with a `never` default. Model states with discriminated
+  unions, not boolean flags.
 
-### Next.js
-- App Router. Server Components by default; `'use client'` only where interactivity requires it, as low in the tree as possible.
-- Every server action and route handler: validate input at the boundary ({{zod}}) and check auth **inside** the action — middleware alone is not authorization.
-- Secrets and service-role keys exist only in server code. Anything imported by a client component is public.
-- After mutations, be deliberate about cache: `revalidatePath`/`revalidateTag` — note this repo's caching decisions here: {{fill}}.
+### React (Vite SPA — no meta-framework)
+- Plain client-rendered SPA, no SSR/routing framework yet. If/when routing is added, note the
+  choice and pattern here.
+- Data access: Supabase client directly from components/hooks for anything RLS can authorize
+  alone. Anything requiring a secret or third-party call goes through the Worker, called via
+  `fetch`.
+- `.env.local` (gitignored) holds `VITE_*` vars from `app/.env.example`. Anything in a `VITE_*`
+  var ships to the client — never put a secret there.
 
 ### Supabase
-- **Every schema change is a migration** in `supabase/migrations/`. Dashboard-only changes are drift and treated as bugs.
-- After any schema change: apply locally, **regenerate types, commit them** in the same change.
-- **RLS is on for every table.** A new table isn't done until its policies exist and have tests (see TESTING.md → RLS tests). Assume the anon key is public.
-- `service_role` key: server/Worker context only, never in anything bundled for the client, never logged.
-- Local-first: develop against `supabase start`, not production. {{Note the local ports/config here.}}
+- **Every schema change is a migration** in `supabase/migrations/` (`pnpm db:new <name>`).
+  Dashboard-only changes are drift and treated as bugs.
+- After any schema change: `pnpm db:reset` locally, **regenerate types
+  (`pnpm db:types`), commit them** in the same change.
+- **RLS is on for every table.** A new table isn't done until its policies exist and have
+  tests (TESTING.md → RLS tests). Assume the anon key is public.
+- `service_role` key: Worker context only, never bundled for the client, never logged.
+- Local ports (`supabase/config.toml`): API `54321`, Postgres `54322`, pooler `54329`, Studio
+  `54323`, inbucket/SMTP `54324`, analytics `54327`. Local-first: develop against
+  `supabase start`, not production.
+- Supabase CLI is a pinned workspace devDependency (`supabase` in root `package.json`) — run
+  via `pnpm exec supabase ...` / the `db:*` scripts, not a global install or `pnpm dlx` (dlx
+  re-resolves the version every call).
 
 ### Cloudflare Workers
-- `wrangler.toml` is the source of truth for bindings; keep the `Env` type in sync with it: {{path to Env type}}.
-- Workers ≠ Node. No `fs`, no Node networking; if `nodejs_compat` is enabled, still verify each API is supported before using it.
-- Secrets via `wrangler secret put` — never in code or committed to `wrangler.toml`.
-- Mind the limits: CPU time, subrequest count, body sizes. Long work belongs in queues/durable objects, not a single request: {{note this repo's approach}}.
-- Tests run in the Workers runtime via `@cloudflare/vitest-pool-workers` (see TESTING.md), not plain Node.
-
-### MongoDB / Express (MERN repos)
-- {{Connection handling, where models live, validation layer, error middleware. Fill or delete.}}
+- `worker/wrangler.toml` is the source of truth for bindings; keep the `Env` interface in
+  `worker/src/index.ts` in sync with it.
+- Workers ≠ Node. `nodejs_compat` is enabled in `wrangler.toml`; still verify each Node API
+  used is actually supported before relying on it.
+- Secrets via `wrangler secret put` in production, `.dev.vars` (gitignored) locally — never in
+  code or committed to `wrangler.toml`.
+- Mind the limits: CPU time, subrequest count, body sizes. Long-running order-sync work will
+  need a queue/cron approach, not a single request — decide and document here when it's built.
+- Tests run in the Workers runtime via `@cloudflare/vitest-pool-workers` (`worker/vitest.config.ts`),
+  not plain Node. **Landmine:** this package's v4 line (`0.18.x`, matching Vitest 4) dropped the
+  `@cloudflare/vitest-pool-workers/config` subpath and `defineWorkersConfig`. Current API: import
+  `{ cloudflareTest }` from the package root, pass it as a Vitest `plugins: [cloudflareTest({ wrangler:
+  { configPath: './wrangler.toml' } })]` entry in a config built with `defineConfig` from
+  `vitest/config`. Don't reintroduce the old `/config` import from an older tutorial/example.
 
 ## Environment & secrets
 
-- `.env.example` is the contract — every required var listed there with a comment. Adding a var without updating it breaks the next machine.
+- `app/.env.example` and `worker/.dev.vars.example` are the contracts — every required var
+  listed there with a comment. Adding a var without updating the example breaks the next
+  machine.
 - Never print secret values in logs, test output, or chat. Refer to them by name.
-- Required vars: {{list, grouped by service}}.
+- Required vars today:
+  - `app/.env.local`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
+  - `worker/.dev.vars`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+  - More will be added per marketplace integration (Amazon/eBay/Walmart/Shopify/TikTok client
+    IDs and secrets) — each addition updates this list and the relevant `.example` file.
 
 ## Definition of Done
 
@@ -107,8 +145,27 @@ A change is done when **all** are true:
 
 ## Landmines (living section — append as discovered)
 
-{{Gotchas that cost someone an hour. Examples of the genre: "the webhook handler double-writes to a deleted DB — do not touch without reading X", "this module predates the type generation, its types lie", "test Y is order-dependent". Every Bughunt and Handoff feeds this list.}}
+- `@cloudflare/vitest-pool-workers` v4 (`0.18.x`) has no `/config` export — see Cloudflare
+  Workers stack rule above. Cost real debugging time during initial scaffold; don't copy an
+  older v3-era example verbatim.
+- `pnpm dlx supabase init` run from *inside* a `supabase/` directory nests a second
+  `supabase/supabase/` — always run Supabase CLI commands (`init`, `migration new`, etc.) from
+  the **repo root**, never from inside `supabase/`.
+- New workspace deps with native/native-adjacent postinstall scripts (`workerd`, `esbuild`,
+  `sharp`) get silently skipped by pnpm until approved. They're pre-approved via
+  `onlyBuiltDependencies` in `pnpm-workspace.yaml` — if a fresh install ever behaves as if
+  `wrangler`/`vitest-pool-workers` didn't build, check that list before debugging further.
 
 ## Overrides
 
-{{Where this repo deliberately deviates from the global contract or stack rules, and why. Empty is a valid state; silent deviation is not.}}
+- **No Next.js**, despite it being common for this stack combination. This app is entirely
+  auth-gated dashboards (brand/provider/admin) with no public/SEO surface — Next.js's main
+  value (SSR, ISR, SEO) buys nothing here, and running it on Cloudflare needs the Workers
+  adapter and its edge-runtime restrictions for no benefit. Instead: a plain Vite SPA
+  (`app/`) deployed as static assets, with **all** privileged/server-side logic in a Cloudflare
+  Worker (`worker/`). If a public marketing page is ever needed, build it as a small separate
+  static/Astro page rather than pulling the whole app into a meta-framework.
+- `app/` uses `oxlint` (shipped by the `create-vite` template) instead of ESLint. Not yet
+  reconsidered; revisit if oxlint's rule coverage proves insufficient.
+- Playwright e2e is not installed yet (`e2e/visual.spec.example.ts` is a template, not a
+  running spec) — there are no routes to test. Wire it up alongside the first real page.
