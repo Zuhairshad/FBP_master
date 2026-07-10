@@ -35,6 +35,7 @@ import {
   handleSync as handleWalmartSync,
 } from './walmart/handlers'
 import type { WalmartWorkerEnv } from './walmart/env'
+import { runScheduledSync } from './scheduledSync'
 
 export interface Env
   extends ShopifyWorkerEnv,
@@ -141,5 +142,15 @@ export default {
     }
 
     return new Response('Not found', { status: 404 })
+  },
+
+  // Phase 10: replaces "manual sync button only" with real background sync
+  // across every connected platform. Fires on the wrangler.toml cron
+  // schedule below; the actual orchestration (per platform, per brand,
+  // sync_logs bookkeeping) lives in scheduledSync.ts, kept out of this
+  // dispatch-only file the same way fetch()'s routes delegate to each
+  // platform's own handlers.ts.
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runScheduledSync(env))
   },
 } satisfies ExportedHandler<Env>

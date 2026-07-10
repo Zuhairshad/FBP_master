@@ -1,5 +1,11 @@
 import { fetchOrders, mintAccessToken } from './client'
-import { cacheAccessToken, resolveMasterSku, touchLastSyncedAt, upsertPlatformOrder } from './supabaseAdmin'
+import {
+  cacheAccessToken,
+  listWalmartTokens,
+  resolveMasterSku,
+  touchLastSyncedAt,
+  upsertPlatformOrder,
+} from './supabaseAdmin'
 import type { WalmartEnv } from './supabaseAdmin'
 import type { PlatformOrderInsert, WalmartOrder } from './types'
 
@@ -80,4 +86,45 @@ export async function syncWalmartOrders(
   await touchLastSyncedAt(env, params.brandId, fetchImpl)
 
   return { syncedCount: orders.length }
+}
+
+/** Phase 10: syncs every brand with a connected Walmart seller account, same
+ * per-brand recipe as handleSync in handlers.ts — see
+ * worker/src/shopify/sync.ts's syncAllShopifyBrands for the per-brand
+ * failure-isolation rationale, which applies identically here. Unlike
+ * Amazon/eBay, no app-level client id/secret param is needed — Walmart's
+ * client_id/client_secret are per-brand, already on each token row. */
+export async function syncAllWalmartBrands(
+  env: WalmartEnv,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ successCount: number; failureCount: number; errors: string[] }> {
+  const tokens = await listWalmartTokens(env, fetchImpl)
+  const errors: string[] = []
+  let successCount = 0
+
+  for (const token of tokens) {
+    try {
+      const accessToken = await ensureAccessToken(
+        env,
+        {
+          brandId: token.brand_id,
+          clientId: token.client_id,
+          clientSecret: token.client_secret,
+          cachedAccessToken: token.access_token,
+          cachedAccessTokenExpiresAt: token.access_token_expires_at,
+        },
+        fetchImpl,
+      )
+      await syncWalmartOrders(
+        env,
+        { brandId: token.brand_id, accessToken, createdStartDate: token.last_synced_at ?? undefined },
+        fetchImpl,
+      )
+      successCount++
+    } catch (err) {
+      errors.push(`brand ${token.brand_id}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  return { successCount, failureCount: errors.length, errors }
 }

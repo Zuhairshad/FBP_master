@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ensureAccessToken, syncEbayOrders } from './sync'
+import { ensureAccessToken, syncAllEbayBrands, syncEbayOrders } from './sync'
 
 const env = { SUPABASE_URL: 'https://project.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'service-role-key' }
 
@@ -157,5 +157,65 @@ describe('syncEbayOrders', () => {
     const { fetchImpl } = makeFetch([])
     const result = await syncEbayOrders(env, { brandId: 'brand-1', accessToken: 'v^1.1#x' }, fetchImpl)
     expect(result).toEqual({ syncedCount: 0 })
+  })
+})
+
+describe('syncAllEbayBrands', () => {
+  const appParams = { clientId: 'ci', clientSecret: 'cs' }
+
+  it('syncs every connected brand and tallies successes', async () => {
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)
+      if (url.pathname === '/rest/v1/ebay_tokens' && (init?.method ?? 'GET') === 'GET') {
+        return Response.json([
+          { id: 't1', brand_id: 'brand-1', refresh_token: 'v^1.1#r1', refresh_token_expires_at: '2027-01-01T00:00:00Z', access_token: null, access_token_expires_at: null, last_synced_at: null },
+          { id: 't2', brand_id: 'brand-2', refresh_token: 'v^1.1#r2', refresh_token_expires_at: '2027-01-01T00:00:00Z', access_token: null, access_token_expires_at: null, last_synced_at: null },
+        ])
+      }
+      if (url.pathname === '/identity/v1/oauth2/token') {
+        return Response.json({ access_token: 'v^1.1#new', token_type: 'User Access Token', expires_in: 7200 })
+      }
+      if (url.pathname === '/sell/fulfillment/v1/order') {
+        return Response.json({ orders: [] })
+      }
+      return Response.json({})
+    }) as typeof fetch
+
+    const result = await syncAllEbayBrands(env, appParams, fetchImpl)
+    expect(result).toEqual({ successCount: 2, failureCount: 0, errors: [] })
+  })
+
+  it("isolates one brand's token-refresh failure so the rest still sync", async () => {
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)
+      if (url.pathname === '/rest/v1/ebay_tokens' && (init?.method ?? 'GET') === 'GET') {
+        return Response.json([
+          { id: 't1', brand_id: 'broken-brand', refresh_token: 'v^1.1#bad', refresh_token_expires_at: '2027-01-01T00:00:00Z', access_token: null, access_token_expires_at: null, last_synced_at: null },
+          { id: 't2', brand_id: 'brand-2', refresh_token: 'v^1.1#r2', refresh_token_expires_at: '2027-01-01T00:00:00Z', access_token: null, access_token_expires_at: null, last_synced_at: null },
+        ])
+      }
+      if (url.pathname === '/identity/v1/oauth2/token') {
+        const body = new URLSearchParams(init?.body as string)
+        if (body.get('refresh_token') === 'v^1.1#bad') {
+          return Response.json({ error: 'invalid_grant' }, { status: 400 })
+        }
+        return Response.json({ access_token: 'v^1.1#new', token_type: 'User Access Token', expires_in: 7200 })
+      }
+      if (url.pathname === '/sell/fulfillment/v1/order') {
+        return Response.json({ orders: [] })
+      }
+      return Response.json({})
+    }) as typeof fetch
+
+    const result = await syncAllEbayBrands(env, appParams, fetchImpl)
+    expect(result.successCount).toBe(1)
+    expect(result.failureCount).toBe(1)
+    expect(result.errors[0]).toContain('broken-brand')
+  })
+
+  it('returns zero counts when no brand is connected', async () => {
+    const fetchImpl = (async () => Response.json([])) as typeof fetch
+    const result = await syncAllEbayBrands(env, appParams, fetchImpl)
+    expect(result).toEqual({ successCount: 0, failureCount: 0, errors: [] })
   })
 })

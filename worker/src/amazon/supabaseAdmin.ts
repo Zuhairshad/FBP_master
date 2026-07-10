@@ -130,3 +130,19 @@ export async function upsertPlatformOrder(
     throw new Error(`Failed to upsert platform_orders row ${order.platform_order_id}: ${error.message}`)
   }
 }
+
+/** Every brand with a connected Amazon seller account — same rationale as
+ * worker/src/shopify/supabaseAdmin.ts's listShopifyTokens (Phase 10). */
+export async function listAmazonTokens(
+  env: AmazonEnv,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AmazonTokenRow[]> {
+  const { data, error } = await adminClient(env, fetchImpl)
+    .from('amazon_tokens')
+    .select('id, brand_id, marketplace_id, refresh_token, access_token, access_token_expires_at, last_synced_at')
+
+  if (error) {
+    throw new Error(`Failed to list amazon_tokens: ${error.message}`)
+  }
+  return (data ?? []) as AmazonTokenRow[]
+}

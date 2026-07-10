@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ingestShopifyWebhookOrder, syncShopifyOrders } from './sync'
+import { ingestShopifyWebhookOrder, syncAllShopifyBrands, syncShopifyOrders } from './sync'
 
 const env = { SUPABASE_URL: 'https://project.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'service-role-key' }
 
@@ -99,6 +99,61 @@ describe('syncShopifyOrders', () => {
       fetchImpl,
     )
     expect(result).toEqual({ syncedCount: 0 })
+  })
+})
+
+describe('syncAllShopifyBrands', () => {
+  it('syncs every connected brand and tallies successes', async () => {
+    const calls: Call[] = []
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)
+      calls.push({ pathname: url.pathname, method: init?.method ?? 'GET', body: undefined })
+
+      if (url.pathname === '/rest/v1/shopify_tokens' && (init?.method ?? 'GET') === 'GET') {
+        return Response.json([
+          { id: 't1', brand_id: 'brand-1', shop_domain: 'brand-1.myshopify.com', access_token: 'shpat_1', scope: 'read_orders', last_synced_at: null },
+          { id: 't2', brand_id: 'brand-2', shop_domain: 'brand-2.myshopify.com', access_token: 'shpat_2', scope: 'read_orders', last_synced_at: null },
+        ])
+      }
+      if (url.hostname.endsWith('.myshopify.com')) {
+        return Response.json({ orders: [] })
+      }
+      return Response.json({})
+    }) as typeof fetch
+
+    const result = await syncAllShopifyBrands(env, fetchImpl)
+    expect(result).toEqual({ successCount: 2, failureCount: 0, errors: [] })
+  })
+
+  it("isolates one brand's failure so the rest still sync", async () => {
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)
+
+      if (url.pathname === '/rest/v1/shopify_tokens' && (init?.method ?? 'GET') === 'GET') {
+        return Response.json([
+          { id: 't1', brand_id: 'broken-brand', shop_domain: 'broken.myshopify.com', access_token: 'shpat_bad', scope: 'read_orders', last_synced_at: null },
+          { id: 't2', brand_id: 'brand-2', shop_domain: 'brand-2.myshopify.com', access_token: 'shpat_2', scope: 'read_orders', last_synced_at: null },
+        ])
+      }
+      if (url.hostname === 'broken.myshopify.com') {
+        return new Response('server error', { status: 500 })
+      }
+      if (url.hostname.endsWith('.myshopify.com')) {
+        return Response.json({ orders: [] })
+      }
+      return Response.json({})
+    }) as typeof fetch
+
+    const result = await syncAllShopifyBrands(env, fetchImpl)
+    expect(result.successCount).toBe(1)
+    expect(result.failureCount).toBe(1)
+    expect(result.errors[0]).toContain('broken-brand')
+  })
+
+  it('returns zero counts when no brand is connected', async () => {
+    const fetchImpl = (async () => Response.json([])) as typeof fetch
+    const result = await syncAllShopifyBrands(env, fetchImpl)
+    expect(result).toEqual({ successCount: 0, failureCount: 0, errors: [] })
   })
 })
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   cacheAccessToken,
   getEbayTokenForBrand,
+  listEbayTokens,
   resolveMasterSku,
   touchLastSyncedAt,
   upsertEbayTokens,
@@ -167,5 +168,32 @@ describe('upsertPlatformOrder', () => {
       },
       fetchImpl,
     )
+  })
+})
+
+describe('listEbayTokens', () => {
+  it('returns every row with no owner filter', async () => {
+    const fetchImpl = fakeFetch((url) => {
+      expect(url.pathname).toBe('/rest/v1/ebay_tokens')
+      expect(url.searchParams.has('brand_id')).toBe(false)
+      return Response.json([
+        { id: 't1', brand_id: 'brand-1', refresh_token: 'v^1.1#r1', refresh_token_expires_at: '2027-01-01T00:00:00Z', access_token: null, access_token_expires_at: null, last_synced_at: null },
+        { id: 't2', brand_id: 'brand-2', refresh_token: 'v^1.1#r2', refresh_token_expires_at: '2027-01-01T00:00:00Z', access_token: null, access_token_expires_at: null, last_synced_at: null },
+      ])
+    })
+
+    const tokens = await listEbayTokens(env, fetchImpl)
+    expect(tokens).toHaveLength(2)
+    expect(tokens.map((t) => t.brand_id)).toEqual(['brand-1', 'brand-2'])
+  })
+
+  it('returns an empty array when no brand is connected', async () => {
+    const fetchImpl = fakeFetch(() => Response.json([]))
+    expect(await listEbayTokens(env, fetchImpl)).toEqual([])
+  })
+
+  it('throws with a descriptive message on a database error', async () => {
+    const fetchImpl = fakeFetch(() => Response.json({ message: 'connection refused' }, { status: 500 }))
+    await expect(listEbayTokens(env, fetchImpl)).rejects.toThrow(/Failed to list ebay_tokens/)
   })
 })

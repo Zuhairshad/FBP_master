@@ -1,5 +1,11 @@
 import { fetchOrders, refreshAccessToken } from './client'
-import { cacheAccessToken, resolveMasterSku, touchLastSyncedAt, upsertPlatformOrder } from './supabaseAdmin'
+import {
+  cacheAccessToken,
+  listEbayTokens,
+  resolveMasterSku,
+  touchLastSyncedAt,
+  upsertPlatformOrder,
+} from './supabaseAdmin'
 import type { EbayEnv } from './supabaseAdmin'
 import type { EbayOrder, PlatformOrderInsert } from './types'
 
@@ -85,4 +91,45 @@ export async function syncEbayOrders(
   await touchLastSyncedAt(env, params.brandId, fetchImpl)
 
   return { syncedCount: orders.length }
+}
+
+/** Phase 10: syncs every brand with a connected eBay seller account, same
+ * per-brand recipe as handleSync in handlers.ts — see
+ * worker/src/shopify/sync.ts's syncAllShopifyBrands for the per-brand
+ * failure-isolation rationale, which applies identically here. */
+export async function syncAllEbayBrands(
+  env: EbayEnv,
+  params: { clientId: string; clientSecret: string },
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ successCount: number; failureCount: number; errors: string[] }> {
+  const tokens = await listEbayTokens(env, fetchImpl)
+  const errors: string[] = []
+  let successCount = 0
+
+  for (const token of tokens) {
+    try {
+      const accessToken = await ensureAccessToken(
+        env,
+        {
+          brandId: token.brand_id,
+          clientId: params.clientId,
+          clientSecret: params.clientSecret,
+          refreshToken: token.refresh_token,
+          cachedAccessToken: token.access_token,
+          cachedAccessTokenExpiresAt: token.access_token_expires_at,
+        },
+        fetchImpl,
+      )
+      await syncEbayOrders(
+        env,
+        { brandId: token.brand_id, accessToken, creationDateFrom: token.last_synced_at ?? undefined },
+        fetchImpl,
+      )
+      successCount++
+    } catch (err) {
+      errors.push(`brand ${token.brand_id}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  return { successCount, failureCount: errors.length, errors }
 }

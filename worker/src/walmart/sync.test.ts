@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ensureAccessToken, syncWalmartOrders } from './sync'
+import { ensureAccessToken, syncAllWalmartBrands, syncWalmartOrders } from './sync'
 
 const env = { SUPABASE_URL: 'https://project.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'service-role-key' }
 
@@ -147,5 +147,64 @@ describe('syncWalmartOrders', () => {
     const { fetchImpl } = makeFetch([])
     const result = await syncWalmartOrders(env, { brandId: 'brand-1', accessToken: 'wm-x' }, fetchImpl)
     expect(result).toEqual({ syncedCount: 0 })
+  })
+})
+
+describe('syncAllWalmartBrands', () => {
+  it('syncs every connected brand and tallies successes', async () => {
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)
+      if (url.pathname === '/rest/v1/walmart_tokens' && (init?.method ?? 'GET') === 'GET') {
+        return Response.json([
+          { id: 't1', brand_id: 'brand-1', client_id: 'client-1', client_secret: 'secret-1', access_token: null, access_token_expires_at: null, last_synced_at: null },
+          { id: 't2', brand_id: 'brand-2', client_id: 'client-2', client_secret: 'secret-2', access_token: null, access_token_expires_at: null, last_synced_at: null },
+        ])
+      }
+      if (url.pathname === '/v3/token') {
+        return Response.json({ access_token: 'wm-new', token_type: 'Bearer', expires_in: 900 })
+      }
+      if (url.pathname === '/v3/orders') {
+        return Response.json({ list: { elements: { order: [] } } })
+      }
+      return Response.json({})
+    }) as typeof fetch
+
+    const result = await syncAllWalmartBrands(env, fetchImpl)
+    expect(result).toEqual({ successCount: 2, failureCount: 0, errors: [] })
+  })
+
+  it("isolates one brand's token-mint failure so the rest still sync", async () => {
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)
+      if (url.pathname === '/rest/v1/walmart_tokens' && (init?.method ?? 'GET') === 'GET') {
+        return Response.json([
+          { id: 't1', brand_id: 'broken-brand', client_id: 'broken-client', client_secret: 'broken-secret', access_token: null, access_token_expires_at: null, last_synced_at: null },
+          { id: 't2', brand_id: 'brand-2', client_id: 'client-2', client_secret: 'secret-2', access_token: null, access_token_expires_at: null, last_synced_at: null },
+        ])
+      }
+      if (url.pathname === '/v3/token') {
+        const authHeader = (init?.headers as Record<string, string>)?.authorization ?? ''
+        const decoded = atob(authHeader.replace('Basic ', ''))
+        if (decoded.startsWith('broken-client:')) {
+          return new Response('invalid client credentials', { status: 401 })
+        }
+        return Response.json({ access_token: 'wm-new', token_type: 'Bearer', expires_in: 900 })
+      }
+      if (url.pathname === '/v3/orders') {
+        return Response.json({ list: { elements: { order: [] } } })
+      }
+      return Response.json({})
+    }) as typeof fetch
+
+    const result = await syncAllWalmartBrands(env, fetchImpl)
+    expect(result.successCount).toBe(1)
+    expect(result.failureCount).toBe(1)
+    expect(result.errors[0]).toContain('broken-brand')
+  })
+
+  it('returns zero counts when no brand is connected', async () => {
+    const fetchImpl = (async () => Response.json([])) as typeof fetch
+    const result = await syncAllWalmartBrands(env, fetchImpl)
+    expect(result).toEqual({ successCount: 0, failureCount: 0, errors: [] })
   })
 })

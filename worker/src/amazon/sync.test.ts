@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ensureAccessToken, syncAmazonOrders } from './sync'
+import { ensureAccessToken, syncAllAmazonBrands, syncAmazonOrders } from './sync'
 
 const env = { SUPABASE_URL: 'https://project.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'service-role-key' }
 
@@ -174,5 +174,65 @@ describe('syncAmazonOrders', () => {
       fetchImpl,
     )
     expect(result).toEqual({ syncedCount: 0 })
+  })
+})
+
+describe('syncAllAmazonBrands', () => {
+  const appParams = { clientId: 'ci', clientSecret: 'cs' }
+
+  it('syncs every connected brand and tallies successes', async () => {
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)
+      if (url.pathname === '/rest/v1/amazon_tokens' && (init?.method ?? 'GET') === 'GET') {
+        return Response.json([
+          { id: 't1', brand_id: 'brand-1', marketplace_id: 'ATVPDKIKX0DER', refresh_token: 'Atzr|1', access_token: null, access_token_expires_at: null, last_synced_at: null },
+          { id: 't2', brand_id: 'brand-2', marketplace_id: 'ATVPDKIKX0DER', refresh_token: 'Atzr|2', access_token: null, access_token_expires_at: null, last_synced_at: null },
+        ])
+      }
+      if (String(url) === 'https://api.amazon.com/auth/o2/token') {
+        return Response.json({ access_token: 'Atza|new', token_type: 'bearer', expires_in: 3600 })
+      }
+      if (url.pathname === '/orders/v0/orders') {
+        return Response.json({ payload: { Orders: [] } })
+      }
+      return Response.json({})
+    }) as typeof fetch
+
+    const result = await syncAllAmazonBrands(env, appParams, fetchImpl)
+    expect(result).toEqual({ successCount: 2, failureCount: 0, errors: [] })
+  })
+
+  it("isolates one brand's token-refresh failure so the rest still sync", async () => {
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)
+      if (url.pathname === '/rest/v1/amazon_tokens' && (init?.method ?? 'GET') === 'GET') {
+        return Response.json([
+          { id: 't1', brand_id: 'broken-brand', marketplace_id: 'ATVPDKIKX0DER', refresh_token: 'Atzr|bad', access_token: null, access_token_expires_at: null, last_synced_at: null },
+          { id: 't2', brand_id: 'brand-2', marketplace_id: 'ATVPDKIKX0DER', refresh_token: 'Atzr|2', access_token: null, access_token_expires_at: null, last_synced_at: null },
+        ])
+      }
+      if (String(url) === 'https://api.amazon.com/auth/o2/token') {
+        const body = new URLSearchParams(init?.body as string)
+        if (body.get('refresh_token') === 'Atzr|bad') {
+          return Response.json({ error: 'invalid_grant' }, { status: 400 })
+        }
+        return Response.json({ access_token: 'Atza|new', token_type: 'bearer', expires_in: 3600 })
+      }
+      if (url.pathname === '/orders/v0/orders') {
+        return Response.json({ payload: { Orders: [] } })
+      }
+      return Response.json({})
+    }) as typeof fetch
+
+    const result = await syncAllAmazonBrands(env, appParams, fetchImpl)
+    expect(result.successCount).toBe(1)
+    expect(result.failureCount).toBe(1)
+    expect(result.errors[0]).toContain('broken-brand')
+  })
+
+  it('returns zero counts when no brand is connected', async () => {
+    const fetchImpl = (async () => Response.json([])) as typeof fetch
+    const result = await syncAllAmazonBrands(env, appParams, fetchImpl)
+    expect(result).toEqual({ successCount: 0, failureCount: 0, errors: [] })
   })
 })

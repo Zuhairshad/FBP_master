@@ -140,3 +140,21 @@ export async function upsertPlatformOrder(
     throw new Error(`Failed to upsert platform_orders row ${order.platform_order_id}: ${error.message}`)
   }
 }
+
+/** Every brand with a connected Shopify store — the scheduled sync handler
+ * (Phase 10, worker/src/index.ts) iterates this list instead of a single
+ * brand the way handleSync does. Service-role bypasses RLS, so this reads
+ * every row regardless of owner. */
+export async function listShopifyTokens(
+  env: ShopifyEnv,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ShopifyTokenRow[]> {
+  const { data, error } = await adminClient(env, fetchImpl)
+    .from('shopify_tokens')
+    .select('id, brand_id, shop_domain, access_token, scope, last_synced_at')
+
+  if (error) {
+    throw new Error(`Failed to list shopify_tokens: ${error.message}`)
+  }
+  return (data ?? []) as ShopifyTokenRow[]
+}
