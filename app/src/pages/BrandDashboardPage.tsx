@@ -23,7 +23,13 @@ export function BrandDashboardPage() {
           Connect Shopify
         </Link>
         <Link to="/brand/shopify/orders" className={NAV_LINK_CLASS}>
-          View orders
+          View Shopify orders
+        </Link>
+        <Link to="/brand/tiktok" className={NAV_LINK_CLASS}>
+          Connect TikTok Shop
+        </Link>
+        <Link to="/brand/tiktok/orders" className={NAV_LINK_CLASS}>
+          View TikTok orders
         </Link>
       </div>
     </DashboardShell>

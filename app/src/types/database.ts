@@ -263,6 +263,39 @@ export interface Database {
         }
         Relationships: []
       }
+      tiktok_tokens: {
+        Row: {
+          id: string
+          brand_id: string
+          shop_id: string
+          access_token: string
+          refresh_token: string
+          access_token_expires_at: string
+          last_synced_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          shop_id: string
+          access_token: string
+          refresh_token: string
+          access_token_expires_at: string
+          last_synced_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          brand_id?: string
+          shop_id?: string
+          access_token?: string
+          refresh_token?: string
+          access_token_expires_at?: string
+          last_synced_at?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       platform_orders: {
         Row: {
           id: string

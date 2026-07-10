@@ -32,8 +32,9 @@ resolves a marketplace SKU back to a brand's Master SKU, brand-owned via a trigg
 `brand_id`. Phase 5 built on top of that: the first real marketplace integration — a brand
 connects a Shopify store via OAuth, orders sync (manually or via webhook) into a unified
 `platform_orders` table resolved through Phase 4's SKU mapping, and the Worker (`worker/`)
-went from an empty scaffold to a real service layer for the first time. No real users, no
-real money.
+went from an empty scaffold to a real service layer for the first time. Phase 6 built on
+top of that: the second marketplace integration — TikTok Shop, same shape as Shopify,
+sharing `platform_orders` with no schema change. No real users, no real money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
@@ -186,16 +187,20 @@ time `worker/` holds actual logic instead of a `/health` stub.
    only SKU-resolution outcome (`pending`/`resolved`/`unmapped`), not fulfillment — that's
    Phase 11.
 2. **Worker service layer** (`worker/src/shopify/`): `client.ts` (Shopify OAuth URL-building,
-   code exchange, order fetch, both HMAC verifications), `hmac.ts` (shared HMAC-SHA256 +
-   constant-time-compare primitive — webhook signatures are base64, OAuth callback signatures
-   are hex, same underlying operation), `oauthState.ts` (the OAuth `state` param is a
-   self-signed, HMAC'd CSRF token carrying `brandId + expiry` — the Worker has no KV/session
-   store, so this is how `/shopify/callback` knows which brand an OAuth redirect belongs to
-   without trusting an unauthenticated GET's query params directly), `supabaseAdmin.ts`
+   code exchange, order fetch, both HMAC verifications), `supabaseAdmin.ts`
    (service-role client + all DB reads/writes), `sync.ts` (fetch → resolve first line item's
    SKU via Phase 4's `sku_mappings` → upsert `platform_orders`), `handlers.ts` (the five HTTP
    entry points, see below), `env.ts`/`types.ts`. Every function that makes a network call
    takes an injected `fetchImpl: typeof fetch = fetch` — see the Testing landmine below for why.
+   Two originally-Shopify-local files — `hmac.ts` (HMAC-SHA256 + constant-time-compare
+   primitive: webhook signatures are base64, OAuth callback signatures are hex, same
+   underlying operation) and `oauthState.ts` (the OAuth `state` param as a self-signed,
+   HMAC'd CSRF token carrying `brandId + expiry` — the Worker has no KV/session store, so
+   this is how a callback knows which brand an OAuth redirect belongs to without trusting an
+   unauthenticated GET's query params directly) — moved to `worker/src/shared/` in Phase 6:
+   both were already fully generic (no Shopify-specific logic), and TikTok needed the exact
+   same primitives rather than a third duplicate copy. See the Cloudflare Workers stack rule
+   below and the Phase 6 write-up.
 3. **Routes** (dispatched from `worker/src/index.ts`): `GET /shopify/status` (brand's only way
    to read connection state, since `shopify_tokens` has zero RLS policies — returns
    `shop_domain`/`last_synced_at` only, never `access_token`), `POST /shopify/install`
@@ -212,8 +217,56 @@ time `worker/` holds actual logic instead of a `/health` stub.
    directly per the Architecture facts rule. **Scope note:** no separate order-detail route;
    detail is inline in the list row, matching every other list page in this repo.
 
-**Not yet built (ASSUMPTION, will change as features land):** Phases 6-9's remaining
-marketplace integrations (TikTok, Amazon, eBay, Walmart) — Phase 5 is their template.
+**TikTok Shop integration (built, Phase 6):** second marketplace integration, same shape
+as Shopify — this is the pair that proves the Phase 5 template generalizes.
+1. **Schema** (`20260710172204_create_tiktok_tokens.sql`): `tiktok_tokens` mirrors
+   `shopify_tokens` exactly (zero RLS policies, service-role only) but adds
+   `refresh_token`/`access_token_expires_at` — TikTok access tokens expire (Shopify's
+   don't) — and stores `shop_id` instead of a shop domain. `platform_orders` needed **no**
+   schema change: its `platform` enum already accepted `'tiktok'` (added in Phase 4 for
+   `sku_mappings`, ahead of any platform actually using it) and its RLS policies are
+   platform-agnostic.
+2. **Worker service layer** (`worker/src/tiktok/`): same file shape as `shopify/`
+   (`client.ts`/`supabaseAdmin.ts`/`sync.ts`/`handlers.ts`/`env.ts`/`types.ts`), importing
+   the shared `hmac.ts`/`oauthState.ts` primitives described above. Differences from
+   Shopify, each an explicit design choice: (a) TikTok's request signing
+   (`client.ts`'s `signRequest`) is a different, TikTok-specific algorithm — secret-wrapped,
+   sorted-query-param string, HMAC-SHA256, hex, **uppercase** (Shopify's hex helper is
+   lowercase; TikTok's documented convention is upper) — used for both outbound API calls
+   and (by the same primitive, reused) webhook verification; (b) TikTok's OAuth callback
+   carries only `code`/`state`, no shop identifier and no extra callback-signature query
+   param the way Shopify's `hmac` param exists — so `handleCallback` makes a follow-up
+   signed `getAuthorizedShops` call after token exchange to learn which shop was
+   authorized, and relies on the signed `state` alone for callback authenticity (there's no
+   third-party shop identity to also verify, unlike Shopify's embeddable-app model); (c)
+   `/tiktok/install` takes no request body — TikTok's authorize URL has no shop-domain
+   parameter for the caller to supply, unlike Shopify's `/shopify/install`.
+   **UNVERIFIED / ASSUMPTION-heavy area:** TikTok's own API docs
+   (`partner.tiktokshop.com`) returned HTTP 403 when fetched directly from this sandbox's
+   network policy (see Landmines) — the exact signing algorithm, OAuth endpoints, order/
+   webhook JSON shapes, and the webhook signature header name are all built from
+   secondary sources describing the same published spec, not a first-party doc fetch.
+   Every code path is unit-tested against this documented format (same posture Phase 5
+   used for Shopify before its own live verification — the difference is Shopify's docs
+   *were* fetchable here). Flagged in-code at each ASSUMPTION site (`client.ts`,
+   `types.ts`) — resolve against TikTok's real docs (or a test-mode app) before any live
+   credential is wired up.
+3. **Routes**: `GET /tiktok/status`, `POST /tiktok/install`, `GET /tiktok/callback`,
+   `POST /tiktok/sync`, `POST /webhooks/tiktok/orders` — same five-route shape as Shopify,
+   dispatched from the same `worker/src/index.ts`, whose `Env` type now extends both
+   `ShopifyWorkerEnv` and `TiktokWorkerEnv`.
+4. **Frontend:** `/brand/tiktok` (`TiktokConnectPage` — no shop-domain form, just a
+   connect button, per the install-endpoint difference above), `/brand/tiktok/orders`
+   (`TiktokOrdersPage`). `ProviderOrdersPage` needed **no** change — it already queries
+   `platform_orders` with no platform filter, so TikTok orders surface there
+   automatically once synced, same as Shopify's.
+5. **Bug found and fixed during this phase** (see Landmines): `ShopifyOrdersPage`'s
+   query had no `platform` filter — harmless with one platform connected, a real
+   cross-platform leak with two. Fixed on both `ShopifyOrdersPage` and the new
+   `TiktokOrdersPage`, with test coverage asserting the filter.
+
+**Not yet built (ASSUMPTION, will change as features land):** Phases 7-9's remaining
+marketplace integrations (Amazon, eBay, Walmart) — Phase 5/6 are their template.
 
 ## Stack rules
 
@@ -284,8 +337,19 @@ marketplace integrations (TikTok, Amazon, eBay, Walmart) — Phase 5 is their te
   `@cloudflare/vitest-pool-workers`' workerd runtime — TESTING.md's MSW convention was the
   starting assumption, but MSW's Node-network-layer interception has no defined relationship
   to workerd's native `fetch`, and this dependency-injection boundary sidesteps the question
-  entirely with no new dependency. Use this pattern for Phases 6-9's `TiktokApiService`/
-  `AmazonSpApiService`/etc. too, rather than reaching for MSW in the Worker.
+  entirely with no new dependency. Confirmed again in Phase 6's `worker/src/tiktok/` (49
+  more tests, same shape) — use this pattern for Phases 7-9's Amazon/eBay/Walmart
+  integrations too, rather than reaching for MSW in the Worker.
+- **Shared vs. per-platform Worker code (decided in Phase 6):** `worker/src/shared/`
+  holds primitives with no platform-specific logic (`hmac.ts`, `oauthState.ts` — moved
+  out of `shopify/` in Phase 6 once TikTok needed the exact same ones, see above).
+  Platform-specific modules (`client.ts`, `supabaseAdmin.ts`, `sync.ts`, `handlers.ts`,
+  `env.ts`, `types.ts`) stay duplicated one directory per platform rather than
+  abstracted behind a shared interface — each platform's wire format, auth flow, and
+  table shape differ enough (see Phase 6's TikTok-vs-Shopify differences write-up above)
+  that a shared abstraction would be premature after only two platforms. Revisit once
+  Phase 7-9 make the actual overlap/divergence pattern clear across four platforms
+  instead of guessing from two.
 
 ## Environment & secrets
 
@@ -301,8 +365,11 @@ marketplace integrations (TikTok, Amazon, eBay, Walmart) — Phase 5 is their te
   - `worker/.dev.vars`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SHOPIFY_CLIENT_ID`,
     `SHOPIFY_CLIENT_SECRET` (also signs the OAuth install-state token and verifies
     webhook/callback HMACs), `SHOPIFY_SCOPES`, `APP_URL` (where the browser lands after OAuth),
-    `WORKER_URL` (the Worker's own URL, used as the OAuth `redirect_uri`)
-  - More will be added per marketplace integration (Amazon/eBay/Walmart/TikTok client IDs and
+    `WORKER_URL` (the Worker's own URL, used as the Shopify OAuth `redirect_uri` — TikTok has
+    no equivalent var, see Phase 6 write-up), `TIKTOK_APP_KEY`, `TIKTOK_APP_SECRET` (also signs
+    the OAuth install-state token and, per the Phase 6 ASSUMPTION notes, request/webhook
+    signatures)
+  - More will be added per marketplace integration (Amazon/eBay/Walmart client IDs and
     secrets) — each addition updates this list and the relevant `.example` file.
 
 ## Definition of Done
@@ -392,6 +459,32 @@ A change is done when **all** are true:
   (Phase 5) needed `VITE_WORKER_URL` added alongside the existing Supabase ones, or
   `App.test.tsx` fails at import time despite not touching Shopify at all (`App.tsx` imports
   every page eagerly, including ones behind roles the test never assumes).
+- **`ShopifyOrdersPage`'s missing platform filter (found during Phase 6, introduced in
+  Phase 5):** the page queried `platform_orders` with no `.eq('platform', 'shopify')` —
+  harmless with exactly one marketplace connected, since every row in the table was
+  necessarily Shopify's. The moment Phase 6 added a second platform sharing the same
+  table, this became a real cross-platform leak (a brand's TikTok orders would appear on
+  their Shopify order list and vice versa). Fixed on both `ShopifyOrdersPage` and the new
+  `TiktokOrdersPage`, with a test asserting the `.eq()` call. **The tell for this class of
+  bug:** a query against a shared/polymorphic table that looks complete with N=1 of the
+  discriminating value in play is unverified for N>1 — audit every existing query against
+  `platform_orders` (or any future shared table) again the next time a new discriminant
+  value actually starts being written, don't assume "it worked before" means "it's scoped
+  correctly."
+- **TikTok Shop's own API docs (`partner.tiktokshop.com`) returned HTTP 403** when fetched
+  directly via `WebFetch` from this sandbox — a different failure mode than the Docker
+  Hub/`supabase.co`/Google Fonts blocks elsewhere in this file (those are outright
+  connection resets; this was a live HTTP response, likely bot/JS-challenge protection on
+  TikTok's docs site rather than the sandbox's proxy policy specifically — unconfirmed
+  either way). Worked around by cross-referencing multiple secondary sources (search
+  results, third-party SDK READMEs) describing the same published signing
+  algorithm/OAuth flow, and flagging every resulting implementation detail as an explicit
+  ASSUMPTION in `worker/src/tiktok/client.ts` and `types.ts` rather than presenting
+  secondary-source-derived code as verified. If a future session gets real doc access
+  (different network policy, or a logged-in browser session), reconcile those ASSUMPTION
+  comments against the first-party spec before any live TikTok credential is wired up —
+  don't assume the unit tests passing means the wire format is correct, only that the
+  code is internally consistent with itself.
 
 ## Overrides
 

@@ -1,4 +1,4 @@
-import { hmacSha256Base64, hmacSha256Hex, timingSafeEqual } from './hmac'
+import { hmacSha256Base64, hmacSha256Hex, timingSafeEqual } from '../shared/hmac'
 import type { ShopifyOrder } from './types'
 
 const SHOPIFY_API_VERSION = '2025-01'

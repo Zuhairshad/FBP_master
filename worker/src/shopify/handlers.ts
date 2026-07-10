@@ -1,6 +1,6 @@
 import { buildAuthorizeUrl, exchangeCodeForToken, isValidShopDomain, verifyOAuthCallbackHmac, verifyWebhookHmac } from './client'
 import type { ShopifyWorkerEnv } from './env'
-import { signInstallState, verifyInstallState } from './oauthState'
+import { signInstallState, verifyInstallState } from '../shared/oauthState'
 import {
   getShopifyTokenForBrand,
   getShopifyTokenForShop,
