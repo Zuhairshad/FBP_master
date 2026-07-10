@@ -23,8 +23,11 @@ repo is a **from-scratch rebuild** of an existing PHP/Laravel + React version on
 auth + role model built (Phase 1 of `ROADMAP.md`) — sign-up/sign-in, brand/provider/admin roles,
 RLS on `profiles`. Phase 2 built on top: provider warehouse setup (`warehouses` +
 `warehouse_services` + `storage_spaces`) and brand product listings (`products`, Master SKU),
-both owner-only RLS with a role check on insert. No booking/order flow yet; no marketplace
-integrations exist yet. No real users, no real money.
+both owner-only RLS with a role check on insert. Phase 3 built on top of that: a directory
+so brands can browse providers/warehouses, a brand↔provider booking request flow
+(`booking_requests`, pending/approved/rejected), and brand-owned `inventory` that becomes
+visible to a provider once a booking is approved. No marketplace integrations exist yet. No
+real users, no real money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
@@ -76,8 +79,9 @@ per `auth.users` row, `role` enum: `brand`/`provider`/`admin`) is populated by t
 `handle_new_user` trigger from sign-up metadata. **Brand and provider are self-service** (picked
 at sign-up); **admin is never self-service** — the trigger silently forces any self-service
 signup requesting `admin` down to `brand`, and a `prevent_role_change` trigger blocks changing
-`role` after creation even via an otherwise-permitted `UPDATE`. RLS on `profiles`: owner-only
-(anon: none, no cross-user access) — see `supabase/tests/profiles_rls.test.sql`.
+`role` after creation even via an otherwise-permitted `UPDATE`. RLS on `profiles`: anon has no
+access; mutation (`UPDATE`) is owner-only; **read is directory-open to any authenticated user**
+as of Phase 3 (see below) — see `supabase/tests/profiles_rls.test.sql`.
 `ProtectedRoute` (unauthenticated → `/sign-in`) and `RequireRole` (wrong role → own dashboard)
 are the client-side route guards; real authorization is still RLS, not the route guard.
 
@@ -94,9 +98,48 @@ it; the role check closes that. See `supabase/tests/warehouses_rls.test.sql` and
 `/brand/products` (`ProductsPage`) query Supabase directly (no Worker involved — plain
 RLS-authorized CRUD, per the Architecture facts rule above).
 
-**Not yet built (ASSUMPTION, will change as features land):** booking flow (Phase 3),
-SKU-mapping schema (Phase 4), and the marketplace integrations themselves — the target shape
-carried over from the prior version's design.
+**Booking flow + inventory visibility (built, Phase 3):** three new migrations on top of
+Phase 2's schema —
+1. **Directory visibility** (`20260710133050_extend_directory_visibility.sql`): adds a
+   permissive `to authenticated using (true)` SELECT policy to `profiles`, `warehouses`,
+   `warehouse_services`, and `storage_spaces`, layered on top of (not replacing) their
+   existing owner-only policies — Postgres ORs multiple permissive policies together, so
+   mutation stays owner-only while read becomes directory-open. This is a deliberate,
+   **reversible** widening of Phase 1/2's security model: a brand must be able to see a
+   provider's identity and available storage space *before* any relationship exists between
+   them, which owner-only RLS categorically can't support. No secret or email lives in any
+   of these tables, so the exposure is low. Updated `profiles_rls.test.sql` and
+   `warehouses_rls.test.sql` accordingly (their old "other user sees nothing" assertions are
+   now "other user can read, but still can't mutate").
+2. **`booking_requests`** (`20260710133104_create_booking_requests.sql`): a brand requests
+   one of a provider's `storage_spaces`; the provider approves or rejects. `provider_id` is
+   never client-supplied — a `SECURITY DEFINER` `BEFORE INSERT` trigger
+   (`set_booking_request_provider_id`) derives it from the storage space's owning warehouse,
+   so a brand can't misdirect a request. RLS: only the two parties (`brand_id`/`provider_id`
+   matching `auth.uid()`) can `SELECT`; only a `brand`-role account can `INSERT` (same
+   role-check pattern as Phase 2); only the provider can `UPDATE` (approve/reject) — brand
+   has no update policy at all, so a request is immutable to its creator once submitted. A
+   second trigger (`protect_booking_request_updates`) blocks changing
+   `brand_id`/`provider_id`/`storage_space_id` via that same permitted `UPDATE` and bumps
+   `updated_at`.
+3. **`inventory`** (`20260710133106_create_inventory.sql`): brand-owned stock levels per
+   warehouse (`product_id`, `warehouse_id`, `quantity`, unique per product+warehouse).
+   Visible to the owning brand always; visible to a provider **only** through an existing
+   `booking_requests` row with `status = 'approved'` connecting that brand to a storage space
+   in the same warehouse — no direct ownership column, so visibility is derived entirely by
+   joining through the booking relationship. This migration also extends `products`' RLS
+   (owner-only since Phase 2) with the same approved-booking predicate
+   (`products_select_via_approved_booking`), since a provider viewing visible inventory needs
+   to resolve the product's name/SKU too, not just an opaque `product_id`.
+
+Frontend: `/brand/bookings` (`BookingsPage` — browse + request), `/brand/inventory`
+(`InventoryPage` — set stock levels), `/provider/bookings` (`ProviderBookingsPage` —
+approve/reject), `/provider/inventory` (`ProviderInventoryPage` — read-only), all plain
+RLS-authorized CRUD against Supabase directly, same pattern as Phase 2.
+
+**Not yet built (ASSUMPTION, will change as features land):** SKU-mapping schema (Phase 4)
+and the marketplace integrations themselves — the target shape carried over from the prior
+version's design.
 
 ## Stack rules
 

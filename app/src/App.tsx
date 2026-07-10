@@ -10,6 +10,10 @@ import { ProviderDashboardPage } from './pages/ProviderDashboardPage'
 import { AdminDashboardPage } from './pages/AdminDashboardPage'
 import { ProductsPage } from './pages/ProductsPage'
 import { WarehousesPage } from './pages/WarehousesPage'
+import { BookingsPage } from './pages/BookingsPage'
+import { InventoryPage } from './pages/InventoryPage'
+import { ProviderBookingsPage } from './pages/ProviderBookingsPage'
+import { ProviderInventoryPage } from './pages/ProviderInventoryPage'
 
 function App() {
   return (
@@ -25,11 +29,15 @@ function App() {
             <Route element={<RequireRole role="brand" />}>
               <Route path="/brand" element={<BrandDashboardPage />} />
               <Route path="/brand/products" element={<ProductsPage />} />
+              <Route path="/brand/bookings" element={<BookingsPage />} />
+              <Route path="/brand/inventory" element={<InventoryPage />} />
             </Route>
 
             <Route element={<RequireRole role="provider" />}>
               <Route path="/provider" element={<ProviderDashboardPage />} />
               <Route path="/provider/warehouses" element={<WarehousesPage />} />
+              <Route path="/provider/bookings" element={<ProviderBookingsPage />} />
+              <Route path="/provider/inventory" element={<ProviderInventoryPage />} />
             </Route>
 
             <Route element={<RequireRole role="admin" />}>
