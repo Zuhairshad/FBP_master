@@ -2,6 +2,12 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { DashboardShell } from '../components/DashboardShell'
+import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { TextField } from '../components/ui/TextField'
+import { SelectField } from '../components/ui/SelectField'
+import { ErrorText } from '../components/ui/ErrorText'
+import { EmptyState } from '../components/ui/EmptyState'
 import type { Database, MarketplacePlatform } from '../types/database'
 
 type SkuMapping = Database['public']['Tables']['sku_mappings']['Row']
@@ -98,91 +104,75 @@ export function SkuMappingsPage() {
     <DashboardShell title="SKU Mappings">
       <div className="mx-auto max-w-2xl">
         {products.length === 0 && !loading ? (
-          <p className="text-sm text-slate-500">Add a product first before mapping marketplace SKUs.</p>
+          <EmptyState>Add a product first before mapping marketplace SKUs.</EmptyState>
         ) : (
-          <form
-            onSubmit={(event) => void handleCreate(event)}
-            className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
-          >
-            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Add a SKU mapping</h2>
+          <Card>
+            <form onSubmit={(event) => void handleCreate(event)}>
+              <h2 className="text-sm font-semibold text-ink">Add a SKU mapping</h2>
 
-            <label className="mt-3 block text-sm">
-              Master SKU
-              <select
-                required
-                value={productId}
-                onChange={(event) => setProductId(event.target.value)}
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
-              >
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.master_sku} — {product.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <div className="mt-3">
+                <SelectField label="Master SKU" required value={productId} onChange={(event) => setProductId(event.target.value)}>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.master_sku} — {product.name}
+                    </option>
+                  ))}
+                </SelectField>
+              </div>
 
-            <label className="mt-3 block text-sm">
-              Platform
-              <select
-                required
-                value={platform}
-                onChange={(event) => setPlatform(event.target.value as MarketplacePlatform)}
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
-              >
-                {PLATFORMS.map((candidate) => (
-                  <option key={candidate} value={candidate}>
-                    {candidate}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <div className="mt-3">
+                <SelectField
+                  label="Platform"
+                  required
+                  value={platform}
+                  onChange={(event) => setPlatform(event.target.value as MarketplacePlatform)}
+                >
+                  {PLATFORMS.map((candidate) => (
+                    <option key={candidate} value={candidate}>
+                      {candidate}
+                    </option>
+                  ))}
+                </SelectField>
+              </div>
 
-            <label className="mt-3 block text-sm">
-              Platform SKU
-              <input
-                type="text"
-                required
-                value={platformSku}
-                onChange={(event) => setPlatformSku(event.target.value)}
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
-              />
-            </label>
+              <div className="mt-3">
+                <TextField
+                  label="Platform SKU"
+                  type="text"
+                  required
+                  value={platformSku}
+                  onChange={(event) => setPlatformSku(event.target.value)}
+                />
+              </div>
 
-            {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+              {error && (
+                <div className="mt-3">
+                  <ErrorText>{error}</ErrorText>
+                </div>
+              )}
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="mt-4 w-full rounded bg-slate-900 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
-            >
-              {submitting ? 'Adding…' : 'Add mapping'}
-            </button>
-          </form>
+              <div className="mt-4">
+                <Button type="submit" disabled={submitting} className="w-full">
+                  {submitting ? 'Adding…' : 'Add mapping'}
+                </Button>
+              </div>
+            </form>
+          </Card>
         )}
 
         <ul className="mt-6 space-y-3">
-          {loading && <li className="text-sm text-slate-500">Loading SKU mappings…</li>}
-          {!loading && mappings.length === 0 && (
-            <li className="text-sm text-slate-500">No SKU mappings yet.</li>
-          )}
+          {loading && <li><EmptyState>Loading SKU mappings…</EmptyState></li>}
+          {!loading && mappings.length === 0 && <li><EmptyState>No SKU mappings yet.</EmptyState></li>}
           {mappings.map((mapping) => (
-            <li
-              key={mapping.id}
-              className="flex items-start justify-between rounded-lg border border-slate-200 p-4 dark:border-slate-800"
-            >
+            <li key={mapping.id} className="flex items-start justify-between rounded-lg border border-hairline bg-surface-1 p-4">
               <div>
-                <p className="text-xs uppercase text-slate-500 dark:text-slate-400">{mapping.platform}</p>
-                <p className="font-medium text-slate-900 dark:text-slate-100">{mapping.platform_sku}</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">{productLabel(mapping.product_id)}</p>
+                <p className="text-xs uppercase text-ink-subtle">{mapping.platform}</p>
+                <p className="font-medium text-ink">{mapping.platform_sku}</p>
+                <p className="text-sm text-ink-subtle">{productLabel(mapping.product_id)}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => void handleDelete(mapping.id)}
-                className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 dark:border-red-800"
-              >
+              <Button type="button" variant="danger" onClick={() => void handleDelete(mapping.id)} className="text-xs">
                 Delete
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

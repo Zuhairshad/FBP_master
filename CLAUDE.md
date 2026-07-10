@@ -12,6 +12,7 @@ binding, not reference material. (Sanity-check once per machine with `/memory`.)
 @WORKFLOW.md
 @TESTING.md
 @SKILLS.md
+@DESIGN.md
 
 ## What this is
 
@@ -236,6 +237,14 @@ marketplace integrations (TikTok, Amazon, eBay, Walmart) — Phase 5 is their te
   (the provider component), `hooks/useAuth.ts` (the hook) are three files, not one, on purpose.
 - `.env.local` (gitignored) holds `VITE_*` vars from `app/.env.example`. Anything in a `VITE_*`
   var ships to the client — never put a secret there.
+- **Design system is `DESIGN.md`, binding** (see the @import at the top of this file). Colors/
+  radii/typography are Tailwind v4 `@theme` tokens in `app/src/index.css` (`bg-canvas`,
+  `text-ink`, `border-hairline`, etc.) — never hand-write a `slate-*`/`red-*`/`green-*` Tailwind
+  class in a page; go through the tokens. Shared primitives live in `app/src/components/ui/`
+  (`Button`, `Card`, `TextField`, `SelectField`, `StatusBadge`, `ListRow`, `EmptyState`,
+  `ErrorText`) — pages compose these, they don't hand-roll form/button markup. Dark is the
+  `@theme` default (`prefers-color-scheme: dark`); light overrides via a
+  `prefers-color-scheme: light` media query on the same CSS variables — no manual toggle exists.
 
 ### Supabase
 - **Every schema change is a migration** in `supabase/migrations/` (`pnpm db:new <name>`).
@@ -309,6 +318,21 @@ A change is done when **all** are true:
 
 ## Landmines (living section — append as discovered)
 
+- **Tailwind cascade order is not DOM class order.** Tried to give `Button`'s `secondary`
+  variant a red border/text override for a Delete action via `className="text-error
+  border-error/50"` stacked after the variant's own classes — unreliable, because Tailwind's
+  compiled stylesheet orders same-property utilities by its own internal rules, not by where
+  they appear in the `className` string, so the "later" class in the string does not reliably
+  win. Fixed by adding a proper `danger` variant to `Button` instead of overriding colors via
+  className stacking. Same footgun applies to any shared primitive — extend the primitive's
+  variant set, don't fight its own classes with more classes.
+- **Google Fonts CDN load failed in this sandbox** (`ERR_CONNECTION_RESET`, caught by
+  `scripts/eyes.mjs`) — the sandbox's proxy blocks it, same category as the Docker Hub/
+  `supabase.co` blocks below. Rather than treat it as sandbox-only noise, reconsidered the
+  dependency itself and dropped it: `app/index.html` has no font `<link>`; font stacks in
+  `app/src/index.css`'s `@theme` lead with the system UI font, with `Inter`/`JetBrains Mono`
+  as unreachable fallbacks. Don't reintroduce a webfont CDN without a real reason — see
+  DESIGN.md's Implementation notes.
 - `@cloudflare/vitest-pool-workers` v4 (`0.18.x`) has no `/config` export — see Cloudflare
   Workers stack rule above. Cost real debugging time during initial scaffold; don't copy an
   older v3-era example verbatim.

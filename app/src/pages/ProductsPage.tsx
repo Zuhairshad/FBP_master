@@ -2,6 +2,11 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { DashboardShell } from '../components/DashboardShell'
+import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { TextField } from '../components/ui/TextField'
+import { ErrorText } from '../components/ui/ErrorText'
+import { EmptyState } from '../components/ui/EmptyState'
 import type { Database } from '../types/database'
 
 type Product = Database['public']['Tables']['products']['Row']
@@ -112,120 +117,112 @@ export function ProductsPage() {
   return (
     <DashboardShell title="Products">
       <div className="mx-auto max-w-2xl">
-        <form
-          onSubmit={(event) => void handleCreate(event)}
-          className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
-        >
-          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Add a product</h2>
+        <Card>
+          <form onSubmit={(event) => void handleCreate(event)}>
+            <h2 className="text-sm font-semibold text-ink">Add a product</h2>
 
-          <label className="mt-3 block text-sm">
-            Master SKU
-            <input
-              type="text"
-              required
-              value={masterSku}
-              onChange={(event) => setMasterSku(event.target.value)}
-              className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
-            />
-          </label>
+            <div className="mt-3">
+              <TextField
+                label="Master SKU"
+                type="text"
+                required
+                value={masterSku}
+                onChange={(event) => setMasterSku(event.target.value)}
+              />
+            </div>
 
-          <label className="mt-3 block text-sm">
-            Name
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
-            />
-          </label>
+            <div className="mt-3">
+              <TextField
+                label="Name"
+                type="text"
+                required
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </div>
 
-          <label className="mt-3 block text-sm">
-            Description (optional)
-            <input
-              type="text"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              className="mt-1 w-full rounded border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
-            />
-          </label>
+            <div className="mt-3">
+              <TextField
+                label="Description (optional)"
+                type="text"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </div>
 
-          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+            {error && (
+              <div className="mt-3">
+                <ErrorText>{error}</ErrorText>
+              </div>
+            )}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="mt-4 w-full rounded bg-slate-900 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
-          >
-            {submitting ? 'Adding…' : 'Add product'}
-          </button>
-        </form>
+            <div className="mt-4">
+              <Button type="submit" disabled={submitting} className="w-full">
+                {submitting ? 'Adding…' : 'Add product'}
+              </Button>
+            </div>
+          </form>
+        </Card>
 
         <ul className="mt-6 space-y-3">
-          {loading && <li className="text-sm text-slate-500">Loading products…</li>}
+          {loading && <li><EmptyState>Loading products…</EmptyState></li>}
           {!loading && products.length === 0 && (
-            <li className="text-sm text-slate-500">No products yet.</li>
+            <li><EmptyState>No products yet.</EmptyState></li>
           )}
           {products.map((product) => (
-            <li
-              key={product.id}
-              className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
-            >
+            <li key={product.id} className="rounded-lg border border-hairline bg-surface-1 p-4">
               {editingId === product.id ? (
                 <div>
                   <input
                     type="text"
                     value={editName}
                     onChange={(event) => setEditName(event.target.value)}
-                    className="w-full rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+                    className="w-full rounded-md border border-hairline bg-surface-1 px-2 py-1 text-sm text-ink"
                   />
                   <input
                     type="text"
                     value={editDescription}
                     onChange={(event) => setEditDescription(event.target.value)}
-                    className="mt-2 w-full rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+                    className="mt-2 w-full rounded-md border border-hairline bg-surface-1 px-2 py-1 text-sm text-ink"
                   />
                   <div className="mt-2 flex gap-2">
-                    <button
+                    <Button
                       type="button"
+                      variant="primary"
                       onClick={() => void handleSaveEdit(product.id)}
-                      className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white dark:bg-slate-100 dark:text-slate-900"
+                      className="text-xs"
                     >
                       Save
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
+                      variant="secondary"
                       onClick={() => setEditingId(null)}
-                      className="rounded border border-slate-300 px-3 py-1 text-xs dark:border-slate-700"
+                      className="text-xs"
                     >
                       Cancel
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ) : (
                 <div className="flex items-start justify-between">
                   <div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{product.master_sku}</p>
-                    <p className="font-medium text-slate-900 dark:text-slate-100">{product.name}</p>
-                    {product.description && (
-                      <p className="text-sm text-slate-500 dark:text-slate-400">{product.description}</p>
-                    )}
+                    <p className="text-xs text-ink-subtle">{product.master_sku}</p>
+                    <p className="font-medium text-ink">{product.name}</p>
+                    {product.description && <p className="text-sm text-ink-subtle">{product.description}</p>}
                   </div>
                   <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => startEdit(product)}
-                      className="rounded border border-slate-300 px-3 py-1 text-xs dark:border-slate-700"
-                    >
+                    <Button type="button" variant="secondary" onClick={() => startEdit(product)} className="text-xs">
                       Edit
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
+                      variant="danger"
                       onClick={() => void handleDelete(product.id)}
-                      className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 dark:border-red-800"
+                      className="text-xs"
                     >
                       Delete
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}

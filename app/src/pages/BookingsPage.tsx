@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { DashboardShell } from '../components/DashboardShell'
+import { Button } from '../components/ui/Button'
+import { ErrorText } from '../components/ui/ErrorText'
+import { EmptyState } from '../components/ui/EmptyState'
+import { StatusBadge } from '../components/ui/StatusBadge'
 import type { Database } from '../types/database'
 
 type Warehouse = Database['public']['Tables']['warehouses']['Row']
@@ -79,11 +83,13 @@ export function BookingsPage() {
   return (
     <DashboardShell title="Find a Provider">
       <div className="mx-auto max-w-2xl">
-        {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
-        {loading && <p className="text-sm text-slate-500">Loading providers…</p>}
-        {!loading && warehouses.length === 0 && (
-          <p className="text-sm text-slate-500">No providers available yet.</p>
+        {error && (
+          <div className="mb-4">
+            <ErrorText>{error}</ErrorText>
+          </div>
         )}
+        {loading && <EmptyState>Loading providers…</EmptyState>}
+        {!loading && warehouses.length === 0 && <EmptyState>No providers available yet.</EmptyState>}
 
         <ul className="space-y-4">
           {warehouses.map((warehouse) => {
@@ -91,14 +97,11 @@ export function BookingsPage() {
             const warehouseSpaces = spaces.filter((space) => space.warehouse_id === warehouse.id)
 
             return (
-              <li
-                key={warehouse.id}
-                className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
-              >
-                <p className="font-medium text-slate-900 dark:text-slate-100">
+              <li key={warehouse.id} className="rounded-lg border border-hairline bg-surface-1 p-4">
+                <p className="font-medium text-ink">
                   {provider?.company_name ?? provider?.display_name ?? 'Unknown provider'}
                 </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
+                <p className="text-sm text-ink-subtle">
                   {warehouse.name} — {warehouse.city}, {warehouse.country}
                 </p>
 
@@ -108,24 +111,23 @@ export function BookingsPage() {
                     return (
                       <li
                         key={space.id}
-                        className="flex items-center justify-between rounded border border-slate-100 px-3 py-2 dark:border-slate-800"
+                        className="flex items-center justify-between rounded-md border border-hairline-tertiary px-3 py-2"
                       >
-                        <span className="text-sm text-slate-700 dark:text-slate-300">
+                        <span className="text-sm text-ink-muted">
                           {space.name} — {space.capacity_units} {space.unit_type}
                         </span>
                         {existingBooking ? (
-                          <span className="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">
-                            {existingBooking.status}
-                          </span>
+                          <StatusBadge>{existingBooking.status}</StatusBadge>
                         ) : (
-                          <button
+                          <Button
                             type="button"
+                            variant="secondary"
                             disabled={requestingSpaceId === space.id}
                             onClick={() => void handleRequestBooking(space.id)}
-                            className="rounded border border-slate-300 px-3 py-1 text-xs disabled:opacity-50 dark:border-slate-700"
+                            className="text-xs"
                           >
                             {requestingSpaceId === space.id ? 'Requesting…' : 'Request booking'}
-                          </button>
+                          </Button>
                         )}
                       </li>
                     )

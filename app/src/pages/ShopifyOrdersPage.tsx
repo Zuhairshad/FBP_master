@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { DashboardShell } from '../components/DashboardShell'
+import { ErrorText } from '../components/ui/ErrorText'
+import { EmptyState } from '../components/ui/EmptyState'
+import { ListRow } from '../components/ui/ListRow'
+import { StatusBadge } from '../components/ui/StatusBadge'
 import type { Database } from '../types/database'
 
 type PlatformOrder = Database['public']['Tables']['platform_orders']['Row']
+
+function statusTone(status: PlatformOrder['status']) {
+  if (status === 'resolved') return 'success'
+  if (status === 'unmapped') return 'error'
+  return 'neutral'
+}
 
 export function ShopifyOrdersPage() {
   const [orders, setOrders] = useState<PlatformOrder[]>([])
@@ -38,33 +48,24 @@ export function ShopifyOrdersPage() {
   return (
     <DashboardShell title="Orders">
       <div className="mx-auto max-w-2xl">
-        {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
-        {loading && <p className="text-sm text-slate-500">Loading orders…</p>}
+        {error && (
+          <div className="mb-4">
+            <ErrorText>{error}</ErrorText>
+          </div>
+        )}
+        {loading && <EmptyState>Loading orders…</EmptyState>}
         {!loading && orders.length === 0 && (
-          <p className="text-sm text-slate-500">No orders yet — connect a store and sync to see orders here.</p>
+          <EmptyState>No orders yet — connect a store and sync to see orders here.</EmptyState>
         )}
 
         <ul className="space-y-2">
           {orders.map((order) => (
-            <li
-              key={order.id}
-              className="flex items-center justify-between rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800"
-            >
-              <span className="text-slate-700 dark:text-slate-300">
+            <ListRow key={order.id}>
+              <span className="text-ink-muted">
                 {order.platform} #{order.platform_order_id}
               </span>
-              <span
-                className={
-                  order.status === 'resolved'
-                    ? 'text-xs font-medium uppercase text-green-600'
-                    : order.status === 'unmapped'
-                      ? 'text-xs font-medium uppercase text-amber-600'
-                      : 'text-xs font-medium uppercase text-slate-500'
-                }
-              >
-                {order.resolved_master_sku ?? order.status}
-              </span>
-            </li>
+              <StatusBadge tone={statusTone(order.status)}>{order.resolved_master_sku ?? order.status}</StatusBadge>
+            </ListRow>
           ))}
         </ul>
       </div>

@@ -1,1 +1,57 @@
 @import "tailwindcss";
+
+/*
+ * Design tokens — see /DESIGN.md for the full rationale. Dark values are the
+ * @theme defaults (dark is this app's primary mode, matching the source
+ * design brief); the prefers-color-scheme: light override below replaces
+ * them for light-preference browsers. No manual toggle — OS preference only.
+ */
+@theme {
+  --color-canvas: #010102;
+  --color-surface-1: #0a0a0d;
+  --color-surface-2: #121317;
+  --color-surface-3: #1a1b20;
+  --color-surface-4: #23252a;
+  --color-hairline: #23252a;
+  --color-hairline-strong: #34363d;
+  --color-hairline-tertiary: #1c1d21;
+  --color-ink: #f7f8f8;
+  --color-ink-muted: #d0d6e0;
+  --color-ink-subtle: #8a8f98;
+  --color-ink-tertiary: #62666d;
+
+  --color-primary: #5e6ad2;
+  --color-primary-hover: #828fff;
+  --color-primary-focus: #5e69d1;
+  --color-on-primary: #ffffff;
+
+  --color-success: #27a644;
+  --color-error: #e5484d;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-canvas: #f7f8fa;
+    --color-surface-1: #ffffff;
+    --color-surface-2: #eef0f4;
+    --color-surface-3: #e4e7ed;
+    --color-surface-4: #d8dce4;
+    --color-hairline: #e2e4e9;
+    --color-hairline-strong: #c9cdd6;
+    --color-hairline-tertiary: #edeef2;
+    --color-ink: #0d0e12;
+    --color-ink-muted: #4b4f58;
+    --color-ink-subtle: #6b7078;
+    --color-ink-tertiary: #9195a0;
+
+    --color-success: #1a8a3a;
+    --color-error: #d13438;
+  }
+}
+
+body {
+  font-family: var(--font-sans);
+}

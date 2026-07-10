@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { DashboardShell } from '../components/DashboardShell'
+import { Button } from '../components/ui/Button'
+import { ErrorText } from '../components/ui/ErrorText'
+import { EmptyState } from '../components/ui/EmptyState'
+import { StatusBadge } from '../components/ui/StatusBadge'
 import type { Database } from '../types/database'
 
 type StorageSpace = Database['public']['Tables']['storage_spaces']['Row']
@@ -68,11 +72,13 @@ export function ProviderBookingsPage() {
   return (
     <DashboardShell title="Booking Requests">
       <div className="mx-auto max-w-2xl">
-        {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
-        {loading && <p className="text-sm text-slate-500">Loading booking requests…</p>}
-        {!loading && bookings.length === 0 && (
-          <p className="text-sm text-slate-500">No booking requests yet.</p>
+        {error && (
+          <div className="mb-4">
+            <ErrorText>{error}</ErrorText>
+          </div>
         )}
+        {loading && <EmptyState>Loading booking requests…</EmptyState>}
+        {!loading && bookings.length === 0 && <EmptyState>No booking requests yet.</EmptyState>}
 
         <ul className="space-y-3">
           {bookings.map((booking) => {
@@ -80,42 +86,36 @@ export function ProviderBookingsPage() {
             const space = spaces.find((s) => s.id === booking.storage_space_id)
 
             return (
-              <li
-                key={booking.id}
-                className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
-              >
+              <li key={booking.id} className="rounded-lg border border-hairline bg-surface-1 p-4">
                 <div className="flex items-start justify-between">
                   <div>
-                    <p className="font-medium text-slate-900 dark:text-slate-100">
+                    <p className="font-medium text-ink">
                       {brand?.company_name ?? brand?.display_name ?? 'Unknown brand'}
                     </p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                      requesting {space?.name ?? 'a storage space'}
-                    </p>
+                    <p className="text-sm text-ink-subtle">requesting {space?.name ?? 'a storage space'}</p>
                   </div>
-                  <span className="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">
-                    {booking.status}
-                  </span>
+                  <StatusBadge>{booking.status}</StatusBadge>
                 </div>
 
                 {booking.status === 'pending' && (
                   <div className="mt-3 flex gap-2">
-                    <button
+                    <Button
                       type="button"
                       disabled={decidingId === booking.id}
                       onClick={() => void handleDecision(booking.id, 'approved')}
-                      className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+                      className="text-xs"
                     >
                       Approve
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
+                      variant="danger"
                       disabled={decidingId === booking.id}
                       onClick={() => void handleDecision(booking.id, 'rejected')}
-                      className="rounded border border-red-300 px-3 py-1 text-xs text-red-600 disabled:opacity-50 dark:border-red-800"
+                      className="text-xs"
                     >
                       Reject
-                    </button>
+                    </Button>
                   </div>
                 )}
               </li>
