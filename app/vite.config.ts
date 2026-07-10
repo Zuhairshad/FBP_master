@@ -18,6 +18,7 @@ export default defineConfig({
     env: {
       VITE_SUPABASE_URL: 'http://localhost:54321',
       VITE_SUPABASE_PUBLISHABLE_KEY: 'test-placeholder-key',
+      VITE_WORKER_URL: 'http://localhost:8787',
     },
   },
 })

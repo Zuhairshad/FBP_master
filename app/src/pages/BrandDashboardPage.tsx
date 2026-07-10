@@ -17,6 +17,12 @@ export function BrandDashboardPage() {
         <Link to="/brand/sku-mappings" className="text-sm underline">
           Map marketplace SKUs
         </Link>
+        <Link to="/brand/shopify" className="text-sm underline">
+          Connect Shopify
+        </Link>
+        <Link to="/brand/shopify/orders" className="text-sm underline">
+          View orders
+        </Link>
       </div>
     </DashboardShell>
   )

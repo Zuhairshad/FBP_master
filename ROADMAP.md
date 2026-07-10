@@ -64,11 +64,13 @@ Merged to `main` via PR #4.
 
 ---
 
-## Phase 3 — Booking Flow (Brand ↔ Provider) `[~]`
+## Phase 3 — Booking Flow (Brand ↔ Provider) `[x]`
 
 **Goal:** brand finds a provider and requests a booking; provider approves/rejects;
 on approval, the brand's inventory becomes visible in that provider's dashboard —
 mirrors the original system's core workflow and its brand-isolation guarantee.
+
+Merged to `main` via PR #5.
 
 - [x] Migration: `booking_requests` (brand_id, provider_id, storage_space_id, status
       enum: pending/approved/rejected, timestamps) — `provider_id` is trigger-derived,
@@ -98,11 +100,13 @@ mirrors the original system's core workflow and its brand-isolation guarantee.
 
 ---
 
-## Phase 4 — SKU Mapping System `[~]`
+## Phase 4 — SKU Mapping System `[x]`
 
 **Goal:** every marketplace-assigned SKU resolves back to the warehouse Master SKU —
 the piece the original system left at "backend 50%, UI 0%." Must exist before any
 marketplace order-sync work lands, since sync depends on this resolution.
+
+Merged to `main` via PR #6.
 
 - [x] Migration: `sku_mappings` (product_id, platform enum, platform_sku, unique per
       platform+brand — enforced via a trigger-derived `brand_id` column, since a unique
@@ -127,7 +131,7 @@ marketplace order-sync work lands, since sync depends on this resolution.
 
 ---
 
-## Phase 5 — Marketplace Integration: Shopify `[ ]`
+## Phase 5 — Marketplace Integration: Shopify `[~]`
 
 **Goal:** brand connects a Shopify store, orders sync into a unified `platform_orders`
 table, resolved through Phase 4's SKU mapping, visible to the booked provider only.
@@ -137,20 +141,49 @@ system — lowest-risk template for Phases 6–9 to copy.
 **Blocked on (live-credential testing only, not build/mock-test work):** a Shopify dev
 store + API credentials.
 
-- [ ] Migration: `platform_orders` (brand_id, platform, platform_order_id unique per
+- [x] Migration: `platform_orders` (brand_id, platform, platform_order_id unique per
       platform, raw_data jsonb, resolved master_sku, status), `shopify_tokens`
-      (service-role access only; RLS locked down as defense-in-depth even though the
-      Worker uses the service key)
-- [ ] Worker: `ShopifyApiService` (auth, fetch orders), token CRUD, per-brand webhook
-      receiver route, manual "sync now" endpoint
-- [ ] Worker tests: MSW-mocked Shopify API, in the Workers runtime
-      (`@cloudflare/vitest-pool-workers`)
-- [ ] Frontend: brand "Connect Shopify" page, order list + detail pages, manual sync
-      button
-- [ ] RLS tests on `platform_orders` / `shopify_tokens`
-- [ ] e2e `@smoke`: connect → orders visible → provider sees them (booking-gated)
-- [ ] Floor + Foundation rung (new shared `platform_orders` shape) + build + smoke
-- [ ] Eyes on connect + order pages
+      (service-role access only; RLS locked down as defense-in-depth — zero policies at
+      all, not just owner-only, since the Worker's service-role key is the only writer;
+      see `CLAUDE.md`)
+- [x] Worker: OAuth install/callback (signed-state CSRF binding + Shopify callback HMAC
+      verification), order fetch + SKU-resolved upsert (`sync.ts`), per-brand webhook
+      receiver route (HMAC-verified), manual "sync now" endpoint, `/shopify/status`
+      (frontend's only way to read connection state, since `shopify_tokens` has zero
+      RLS policies — see `CLAUDE.md`)
+- [x] Worker tests: **deviated from MSW** — every Supabase/Shopify call takes an
+      injected `fetchImpl` (defaulting to global `fetch`), forwarded into supabase-js's
+      own `global.fetch` option for admin-client calls; tests inject a fake `fetch`
+      directly instead of intercepting at the Node network layer. Verified empirically
+      in this sandbox (not assumed) — MSW's compatibility with
+      `@cloudflare/vitest-pool-workers`' workerd runtime was the flagged risk going in;
+      dependency-injection sidesteps it entirely and needed no new dependency. 64 worker
+      tests, all in the Workers runtime.
+- [x] Frontend: brand "Connect Shopify" page (`ShopifyConnectPage` — connect form +
+      status + manual sync), brand order list (`ShopifyOrdersPage`), provider read-only
+      order list (`ProviderOrdersPage`, booking-gated). **Scope note:** no separate
+      order-detail route — detail is inline in the list row (resolved SKU or
+      unmapped/pending badge), matching every other list page in this repo (none of
+      which have a detail route either). Revisit if orders grow enough fields to need one.
+- [x] RLS tests on `platform_orders` (anon/owner/other-tenant/approved-booking-provider)
+      / `shopify_tokens` (zero-policy: anon and even the owning brand get nothing) —
+      written (`platform_orders_rls.test.sql`, `shopify_tokens_rls.test.sql`), **not yet
+      executed against a live Postgres** (same sandbox DB blocker as every phase so far)
+- [ ] e2e `@smoke`: connect → orders visible → provider sees them (booking-gated) — **not
+      built.** `e2e/visual.spec.example.ts` has been an unwired template since Phase 1;
+      no phase has been first to wire real e2e yet despite having real pages each time.
+      This is a carried-forward, repo-wide gap (Phase 13 is where `ROADMAP.md` already
+      commits to closing it), not something Phase 5 introduces — flagging rather than
+      silently building a one-off e2e spec that breaks the pattern every other phase set.
+- [x] Floor + Foundation rung (new shared `platform_orders`/`shopify_tokens` shape,
+      first real Worker service layer) + build — all green
+- [x] Eyes: unauthenticated redirect confirmed clean on `/brand/shopify`,
+      `/brand/shopify/orders`, `/provider/orders` (desktop + mobile, no console errors);
+      **full visual check of the authenticated flows is UNVERIFIED** (needs a live
+      session, same DB blocker as every phase so far). OAuth round-trip against a real
+      Shopify store is UNVERIFIED end-to-end (needs live credentials, per the blocker
+      above) — every HMAC/state/token-exchange code path is unit-tested against
+      Shopify's documented wire format instead.
 
 ---
 

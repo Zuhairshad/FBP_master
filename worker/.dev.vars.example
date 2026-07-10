@@ -2,3 +2,14 @@
 # Production secrets go through `wrangler secret put <NAME>`, never here.
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
+
+# Shopify custom/public app credentials (Phase 5). SHOPIFY_CLIENT_SECRET also
+# signs the OAuth install-state token and verifies webhook/callback HMACs —
+# see worker/src/shopify/oauthState.ts and hmac.ts.
+SHOPIFY_CLIENT_ID=
+SHOPIFY_CLIENT_SECRET=
+SHOPIFY_SCOPES=read_orders
+# Where the browser lands after OAuth completes (the app/ dev server).
+APP_URL=http://localhost:5173
+# This Worker's own publicly reachable URL — used as the OAuth redirect_uri.
+WORKER_URL=http://localhost:8787

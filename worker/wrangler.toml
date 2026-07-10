@@ -6,3 +6,8 @@ compatibility_flags = ["nodejs_compat"]
 # Bindings (Supabase URL/keys, per-marketplace credentials, KV/queues for order
 # sync, etc.) get added here as features land — see CLAUDE.md "Environment &
 # secrets". Secrets go through `wrangler secret put <NAME>`, never in this file.
+#
+# Phase 5 (Shopify) needs, all via `wrangler secret put` in prod / `.dev.vars`
+# locally (see worker/.dev.vars.example): SUPABASE_URL,
+# SUPABASE_SERVICE_ROLE_KEY, SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET,
+# SHOPIFY_SCOPES, APP_URL, WORKER_URL.
