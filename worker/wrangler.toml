@@ -1,0 +1,8 @@
+name = "fbp-worker"
+main = "src/index.ts"
+compatibility_date = "2026-07-10"
+compatibility_flags = ["nodejs_compat"]
+
+# Bindings (Supabase URL/keys, per-marketplace credentials, KV/queues for order
+# sync, etc.) get added here as features land — see CLAUDE.md "Environment &
+# secrets". Secrets go through `wrangler secret put <NAME>`, never in this file.

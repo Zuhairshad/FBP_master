@@ -1,0 +1,20 @@
+{
+  "name": "fbp-master",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:app": "pnpm --filter app dev",
+    "dev:worker": "pnpm --filter worker dev",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "db:new": "supabase migration new",
+    "db:reset": "supabase db reset",
+    "db:types": "supabase gen types typescript --local > app/src/types/database.ts"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "devDependencies": {
+    "supabase": "^2.109.1"
+  }
+}

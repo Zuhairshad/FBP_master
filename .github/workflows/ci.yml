@@ -1,0 +1,86 @@
+# INSTALL: <repo-root>/.github/workflows/ci.yml
+#
+# The one gate nothing can talk its way past. Hooks guard the agent's machine;
+# this guards the repo — including 2am human commits made outside Claude Code.
+#
+# To make it BITE (one-time setup per repo):
+#   GitHub -> Settings -> Branches -> Add branch protection rule for `main`
+#   -> "Require status checks to pass" -> select `ship-gate`.
+#   Without that click, this workflow is a report. With it, it is a wall.
+#
+# Package manager: written for pnpm. npm repo? Swap the two pnpm steps for
+# `npm ci` and change `pnpm` -> `npm run` below. Match your lockfile, always.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ship-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      # Version comes from root package.json's "packageManager" field — passing
+      # `version:` here too makes pnpm/action-setup v4 refuse to run
+      # ("Multiple versions of pnpm specified").
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install (locked — a drifting lockfile fails here, on purpose)
+        run: pnpm install --frozen-lockfile
+
+      # ---- Local Supabase for integration + RLS tests ----------------------
+      # Uncomment if your integration tests hit a real local database
+      # (they should — see TESTING.md). Runner has Docker; this just works.
+      # - uses: supabase/setup-cli@v1
+      #   with:
+      #     version: latest
+      # - run: supabase start
+      # - run: supabase db reset
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint (zero warnings)
+        run: pnpm lint
+
+      - name: Unit + integration tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Worker dry-run deploy
+        run: pnpm --filter worker deploy:dry-run
+
+      # ---- E2E + visual regression (uncomment once real routes + e2e/visual.spec.ts exist)
+      # - name: Install Playwright Chromium
+      #   run: pnpm exec playwright install --with-deps chromium
+      # - name: E2E + visual regression
+      #   run: pnpm exec playwright test
+
+      - name: Upload failure evidence (screenshots, traces, report)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-evidence
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
