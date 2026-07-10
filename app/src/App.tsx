@@ -14,6 +14,7 @@ import { BookingsPage } from './pages/BookingsPage'
 import { InventoryPage } from './pages/InventoryPage'
 import { ProviderBookingsPage } from './pages/ProviderBookingsPage'
 import { ProviderInventoryPage } from './pages/ProviderInventoryPage'
+import { SkuMappingsPage } from './pages/SkuMappingsPage'
 
 function App() {
   return (
@@ -31,6 +32,7 @@ function App() {
               <Route path="/brand/products" element={<ProductsPage />} />
               <Route path="/brand/bookings" element={<BookingsPage />} />
               <Route path="/brand/inventory" element={<InventoryPage />} />
+              <Route path="/brand/sku-mappings" element={<SkuMappingsPage />} />
             </Route>
 
             <Route element={<RequireRole role="provider" />}>

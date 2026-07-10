@@ -98,19 +98,32 @@ mirrors the original system's core workflow and its brand-isolation guarantee.
 
 ---
 
-## Phase 4 — SKU Mapping System `[ ]`
+## Phase 4 — SKU Mapping System `[~]`
 
 **Goal:** every marketplace-assigned SKU resolves back to the warehouse Master SKU —
 the piece the original system left at "backend 50%, UI 0%." Must exist before any
 marketplace order-sync work lands, since sync depends on this resolution.
 
-- [ ] Migration: `sku_mappings` (product_id, platform enum, platform_sku, unique per
-      platform+brand)
-- [ ] RLS: brand manages only its own mappings
-- [ ] RLS tests + uniqueness-constraint test (duplicate platform_sku per brand rejected)
-- [ ] Frontend: SKU Mapping UI — table of platform SKUs linked to Master SKU, bulk entry
-- [ ] Floor + integration tests + build
-- [ ] Eyes on the mapping UI
+- [x] Migration: `sku_mappings` (product_id, platform enum, platform_sku, unique per
+      platform+brand — enforced via a trigger-derived `brand_id` column, since a unique
+      constraint can't span a join; see `CLAUDE.md`)
+- [x] RLS: brand manages only its own mappings — the `brand_id` derivation trigger
+      doubles as the authorization check (see `CLAUDE.md`), so no separate role check
+      was needed unlike `products`/`warehouses`
+- [x] RLS tests + uniqueness-constraint test (duplicate platform_sku per brand rejected) —
+      written (`sku_mappings_rls.test.sql`), **not yet executed against a live Postgres**
+      (same sandbox DB blocker as every phase so far)
+- [~] Frontend: SKU Mapping UI (`SkuMappingsPage`) — form to map a Master SKU + platform
+      + platform SKU, list of existing mappings with delete. **Scope note:** this phase's
+      goal line calls for "bulk entry"; what's built is single-row entry (matching
+      `ProductsPage`/`InventoryPage`'s existing form pattern) — a brand with many SKUs to
+      map will be doing it one at a time. Flagging rather than silently dropping it;
+      revisit with a CSV/paste-in bulk form if that friction turns out to matter.
+- [x] Component tests for the mapping page (mocked Supabase client)
+- [x] Floor + Foundation-rung full suite (new shared table) + build — all green
+- [x] Eyes: unauthenticated redirect confirmed clean on `/brand/sku-mappings`; **full
+      visual check of the authenticated form is UNVERIFIED** (needs a live session,
+      same DB blocker as every phase so far)
 
 ---
 

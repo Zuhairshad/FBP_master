@@ -1,12 +1,14 @@
 // Hand-authored interim types matching supabase/migrations/20260710124353_create_profiles.sql,
 // 20260710130555_create_warehouses.sql, 20260710130605_create_products.sql,
 // 20260710133050_extend_directory_visibility.sql (RLS-only, no shape change),
-// 20260710133104_create_booking_requests.sql, and 20260710133106_create_inventory.sql.
+// 20260710133104_create_booking_requests.sql, 20260710133106_create_inventory.sql,
+// and 20260710135941_create_sku_mappings.sql.
 // Regenerate with `pnpm db:types` once local/hosted Supabase is reachable —
 // this file only exists so the app can typecheck against the schema before that.
 
 export type UserRole = 'brand' | 'provider' | 'admin'
 export type BookingStatus = 'pending' | 'approved' | 'rejected'
+export type MarketplacePlatform = 'amazon' | 'tiktok' | 'ebay' | 'walmart' | 'shopify'
 
 export interface Database {
   public: {
@@ -203,12 +205,40 @@ export interface Database {
         }
         Relationships: []
       }
+      sku_mappings: {
+        Row: {
+          id: string
+          product_id: string
+          brand_id: string
+          platform: MarketplacePlatform
+          platform_sku: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          product_id: string
+          brand_id?: string
+          platform: MarketplacePlatform
+          platform_sku: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          product_id?: string
+          brand_id?: string
+          platform?: MarketplacePlatform
+          platform_sku?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
     Enums: {
       user_role: UserRole
       booking_status: BookingStatus
+      marketplace_platform: MarketplacePlatform
     }
     CompositeTypes: Record<string, never>
   }
