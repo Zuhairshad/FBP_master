@@ -58,3 +58,28 @@ export interface TiktokStatus {
 export function getTiktokStatus(accessToken: string): Promise<TiktokStatus> {
   return callWorker('/tiktok/status', accessToken)
 }
+
+export function connectAmazon(
+  accessToken: string,
+  params: { refreshToken: string; marketplaceId: string },
+): Promise<{ connected: boolean }> {
+  return callWorker('/amazon/connect', accessToken, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ refreshToken: params.refreshToken, marketplaceId: params.marketplaceId }),
+  })
+}
+
+export function triggerAmazonSync(accessToken: string): Promise<{ syncedCount: number }> {
+  return callWorker('/amazon/sync', accessToken, { method: 'POST' })
+}
+
+export interface AmazonStatus {
+  connected: boolean
+  marketplaceId?: string
+  lastSyncedAt?: string | null
+}
+
+export function getAmazonStatus(accessToken: string): Promise<AmazonStatus> {
+  return callWorker('/amazon/status', accessToken)
+}

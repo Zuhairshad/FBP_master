@@ -242,15 +242,62 @@ blocker above.
 
 ---
 
-## Phase 7 — Marketplace Integration: Amazon SP-API `[ ]`
+## Phase 7 — Marketplace Integration: Amazon SP-API `[~]`
 
 **Blocked on (live testing):** client's production Seller refresh token — build and
-test against the SP-API **sandbox** regardless.
+test against the SP-API shapes regardless. Amazon's own docs portal
+(`developer-docs.amazon.com`) returned HTTP 403 from this sandbox's network policy when
+fetched directly (same class of block as TikTok's docs site) — but the `getOrders`/
+`getOrderItems` field names below were verified against Amazon's own
+`selling-partner-api-models` GitHub repo (a first-party, machine-readable schema
+source), and the LWA refresh-token flow + the Oct 2023 "SP-API no longer requires AWS
+IAM or AWS Signature Version 4" changelog entry were both confirmed via multiple
+independent sources — firmer footing than TikTok's secondary-source-only ASSUMPTIONs.
 
-- [ ] `AmazonSpApiService` (LWA token refresh, `getOrders`/`getOrderItems`) +
-      `amazon_tokens` + webhook/sync route
-- [ ] Worker tests (MSW against sandbox shapes), RLS tests, connect + order UI, `@smoke`
-- [ ] Floor + tests + build + smoke; Eyes
+- [x] **No `AmazonSpApiService`-style OAuth install/callback flow** — deviated from this
+      line's framing on purpose. Amazon's SP-API for a private/internal app uses
+      "self-authorization": the seller generates a long-lived refresh token directly in
+      Seller Central and hands it to the brand, who submits it through our own form
+      (`AmazonConnectPage`) rather than our Worker hosting a redirect flow the way
+      Shopify/TikTok's install/callback pair does. See `CLAUDE.md` for the full
+      rationale.
+- [x] **No SigV4 request signing** — Amazon deprecated the mandatory AWS Signature
+      Version 4 requirement in Oct 2023; SP-API requests need only the LWA access token
+      in an `x-amz-access-token` header. Simpler than TikTok's HMAC scheme, not a
+      shortcut.
+- [x] Migration: `amazon_tokens` (mirrors `shopify_tokens`/`tiktok_tokens` — zero RLS
+      policies, service-role only; `platform_orders` needed no schema change, its
+      `platform` column already accepts `'amazon'`)
+- [x] Worker: `worker/src/amazon/` — LWA token refresh (`refreshAccessToken`, cached with
+      a 60s expiry skew via `ensureAccessToken` so sync doesn't re-mint on every call),
+      `getOrders`/`getOrderItems` (the latter is a separate per-order call — Amazon's
+      order objects carry no inline line-item array the way Shopify/TikTok's do),
+      SKU-resolved upsert, manual sync endpoint, `/amazon/status`, `/amazon/connect`
+      (replaces install/callback — see above)
+- [x] **No webhook route** — deviated from this line's framing on purpose. Amazon's
+      real near-real-time mechanism is the Notifications API over SQS, not a simple
+      inbound HTTP POST the way Shopify/TikTok's webhooks work — architecturally a
+      different integration, and Phase 10 ("Order Sync Automation") already owns turning
+      every platform's manual-sync-only into real background sync. Not a gap unique to
+      Amazon: Shopify/TikTok are also manual-sync-only as of their own phases.
+- [x] **Deviated from MSW**, same as Phase 5/6: every network-calling function takes an
+      injected `fetchImpl`. 37 new worker tests (185 total across app+worker), all in the
+      Workers runtime
+- [x] RLS tests: `amazon_tokens_rls.test.sql` (zero-policy shape, mirrors
+      `shopify_tokens_rls.test.sql`/`tiktok_tokens_rls.test.sql`) — written, **not yet
+      executed against a live Postgres** (same sandbox DB blocker as every phase so far)
+- [x] Frontend: `AmazonConnectPage` (refresh-token + marketplace-id paste form instead
+      of an OAuth redirect button — see above), `AmazonOrdersPage` (with the
+      `.eq('platform', 'amazon')` filter learned from Phase 6's bug)
+- [ ] e2e `@smoke`: same carried-forward, repo-wide gap as Phase 5/6 (Phase 13 closes it)
+- [x] Floor + Foundation rung (new platform module + widened `Env` type) + build +
+      `wrangler deploy --dry-run` — all green
+- [x] Eyes: unauthenticated redirect confirmed clean on `/brand/amazon` and
+      `/brand/amazon/orders` (desktop + mobile, no console errors); **full visual check
+      of the authenticated flows is UNVERIFIED** (needs a live session, same DB blocker
+      as every phase so far). LWA/SP-API round-trip against a real Amazon seller account
+      is UNVERIFIED end-to-end (needs the client's production refresh token, per the
+      blocker above)
 
 ---
 
