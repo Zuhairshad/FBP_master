@@ -70,8 +70,11 @@ encountered across five marketplaces. No real users, no real money.
 - `app/` — React 19 + Vite + TypeScript SPA. Tailwind v4 via `@tailwindcss/vite`. `react-router`
   for client-side routing. `src/lib/supabase.ts` is the **browser** Supabase client (publishable
   key only, RLS-enforced). `src/hooks/` (auth context/provider/hook), `src/components/`
-  (route guards, shared UI), `src/pages/` (routed pages), `src/types/database.ts` (Supabase
-  types — regenerate with `pnpm db:types`, never hand-edit once real).
+  (route guards, shared UI), `src/pages/` (routed pages, one subfolder per role —
+  `pages/brand/`, `pages/provider/`, `pages/admin/` — plus role-agnostic pages, `SignInPage`/
+  `SignUpPage`/`RoleRedirect`, at `pages/` root since they run before a role is known),
+  `src/types/database.ts` (Supabase types — regenerate with `pnpm db:types`, never hand-edit
+  once real).
 - `worker/` — Cloudflare Worker (TypeScript). `src/index.ts` is the fetch handler — this is
   where all privileged logic will live: marketplace webhooks, OAuth token refresh, order
   sync, anything holding the Supabase service-role key or marketplace secrets.
@@ -830,6 +833,20 @@ A change is done when **all** are true:
   level change that can break every page test that renders through it, even tests
   that have nothing to do with navigation — grep for the shell's usages before
   assuming a shell-only change is isolated to the shell.
+- **Moving `pages/*.tsx` into `pages/{brand,provider,admin}/` broke every test
+  that used `vi.mock('../lib/...')`, silently, not with a type error.**
+  Bumping `import ... from '../lib/x'` to `'../../lib/x'` after a file moves
+  one directory deeper is the obvious half of the fix; `vi.mock('../lib/x', ...)`
+  calls are a separate string literal Vitest resolves independently of any
+  `import` statement, so a sed pass targeting `from '../` left every
+  `vi.mock('../lib/...')` pointing at a now-nonexistent path. The failure mode
+  wasn't a red build — `tsc`/`oxlint` both passed, since `vi.mock`'s argument
+  is just a string, not a typechecked import — it only surfaced at test run
+  as `vi.mocked(supabase.from).mockReturnValueOnce is not a function`, because
+  the real (unmocked) module loaded instead. The tell for next time: after
+  moving any file with `vi.mock(<relative path>, ...)` calls, grep for
+  `vi.mock\(.*\.\./` in the moved files specifically — it's invisible to both
+  the type checker and the linter, only the test run catches it.
 
 ## Overrides
 
