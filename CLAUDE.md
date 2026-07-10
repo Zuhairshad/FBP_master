@@ -19,9 +19,10 @@ FBP (Fulfillment By People) is a multi-platform fulfillment management SaaS: it 
 Brands (sellers) with Fulfillment Providers (warehouse owners) and syncs orders from
 marketplaces (Amazon, TikTok, eBay, Walmart, Shopify) into the provider's dashboard. This
 repo is a **from-scratch rebuild** of an existing PHP/Laravel + React version on a new stack
-(React/Vite SPA + Supabase + Cloudflare Workers) — see `Overrides` for why. **Current state:
-bare scaffold.** No auth, no dashboards, no marketplace integrations exist yet. No real users,
-no real money.
+(React/Vite SPA + Supabase + Cloudflare Workers) — see `Overrides` for why. **Current state:**
+auth + role model built (Phase 1 of `ROADMAP.md`) — sign-up/sign-in, brand/provider/admin roles,
+RLS on `profiles`. Dashboards past that are empty shells; no marketplace integrations exist yet.
+No real users, no real money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
@@ -33,7 +34,7 @@ no real money.
 | Lint (all) | `pnpm lint` |
 | Unit/integration tests (all) | `pnpm test` |
 | Single test file | `pnpm --filter app exec vitest run <path>` (or `--filter worker`) |
-| E2E | not yet wired — no routes exist; see `e2e/visual.spec.example.ts` |
+| E2E | not yet wired — `e2e/visual.spec.example.ts` is still a template. Playwright itself IS installed (root devDependency) so `scripts/eyes.mjs` can run. |
 | Build (all) | `pnpm build` |
 | DB: new migration | `pnpm db:new <name>` |
 | DB: apply locally | `pnpm db:reset` (requires Docker + `supabase start`) |
@@ -43,13 +44,16 @@ no real money.
 
 ## Repo map
 
-- `app/` — React 19 + Vite + TypeScript SPA. Tailwind v4 via `@tailwindcss/vite`. `src/lib/supabase.ts`
-  is the **browser** Supabase client (anon key only, RLS-enforced).
+- `app/` — React 19 + Vite + TypeScript SPA. Tailwind v4 via `@tailwindcss/vite`. `react-router`
+  for client-side routing. `src/lib/supabase.ts` is the **browser** Supabase client (publishable
+  key only, RLS-enforced). `src/hooks/` (auth context/provider/hook), `src/components/`
+  (route guards, shared UI), `src/pages/` (routed pages), `src/types/database.ts` (Supabase
+  types — regenerate with `pnpm db:types`, never hand-edit once real).
 - `worker/` — Cloudflare Worker (TypeScript). `src/index.ts` is the fetch handler — this is
   where all privileged logic will live: marketplace webhooks, OAuth token refresh, order
   sync, anything holding the Supabase service-role key or marketplace secrets.
-- `supabase/` — local Supabase config (`config.toml`) and `migrations/` — the only legitimate
-  way schema changes happen.
+- `supabase/` — local Supabase config (`config.toml`), `migrations/` (the only legitimate way
+  schema changes happen), and `tests/` (pgTAP RLS policy tests, run via `supabase test db`).
 - `.claude/` — engineering-os hooks (`floor.sh`, `commit-gate.sh`, `remind.sh`) and the `/task`
   command.
 - `e2e/` — Playwright specs. Currently only `visual.spec.example.ts` — rename to `visual.spec.ts`
@@ -65,9 +69,19 @@ per-brand marketplace webhooks, running scheduled order sync — goes through th
 Worker (`worker/`), which holds the service-role key and per-marketplace secrets via
 `wrangler secret put` (`.dev.vars` locally, gitignored).
 
-**Not yet built (ASSUMPTION, will change as features land):** auth model (brand/provider/admin
-roles), the SKU-mapping schema, and the marketplace integrations themselves. Nothing below
-this line is implemented — it's the target shape carried over from the prior version's design.
+**Auth model (built, Phase 1):** Supabase Auth handles credentials; `public.profiles` (one row
+per `auth.users` row, `role` enum: `brand`/`provider`/`admin`) is populated by the
+`handle_new_user` trigger from sign-up metadata. **Brand and provider are self-service** (picked
+at sign-up); **admin is never self-service** — the trigger silently forces any self-service
+signup requesting `admin` down to `brand`, and a `prevent_role_change` trigger blocks changing
+`role` after creation even via an otherwise-permitted `UPDATE`. RLS on `profiles`: owner-only
+(anon: none, no cross-user access) — see `supabase/tests/profiles_rls.test.sql`.
+`ProtectedRoute` (unauthenticated → `/sign-in`) and `RequireRole` (wrong role → own dashboard)
+are the client-side route guards; real authorization is still RLS, not the route guard.
+
+**Not yet built (ASSUMPTION, will change as features land):** the SKU-mapping schema and the
+marketplace integrations themselves — the target shape carried over from the prior version's
+design.
 
 ## Stack rules
 
@@ -81,11 +95,14 @@ this line is implemented — it's the target shape carried over from the prior v
   unions, not boolean flags.
 
 ### React (Vite SPA — no meta-framework)
-- Plain client-rendered SPA, no SSR/routing framework yet. If/when routing is added, note the
-  choice and pattern here.
+- Plain client-rendered SPA. Routing is `react-router` (v8, the unified package — `BrowserRouter`
+  / `Routes` / `Route`, no data-router/loader features used yet).
 - Data access: Supabase client directly from components/hooks for anything RLS can authorize
   alone. Anything requiring a secret or third-party call goes through the Worker, called via
   `fetch`.
+- One export per file for anything importing React hooks/context (`react/only-export-components`
+  in `.oxlintrc.json`) — e.g. `hooks/auth-context.ts` (context + types), `hooks/AuthProvider.tsx`
+  (the provider component), `hooks/useAuth.ts` (the hook) are three files, not one, on purpose.
 - `.env.local` (gitignored) holds `VITE_*` vars from `app/.env.example`. Anything in a `VITE_*`
   var ships to the client — never put a secret there.
 
@@ -127,7 +144,7 @@ this line is implemented — it's the target shape carried over from the prior v
   machine.
 - Never print secret values in logs, test output, or chat. Refer to them by name.
 - Required vars today:
-  - `app/.env.local`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
+  - `app/.env.local`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`
   - `worker/.dev.vars`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
   - More will be added per marketplace integration (Amazon/eBay/Walmart/Shopify/TikTok client
     IDs and secrets) — each addition updates this list and the relevant `.example` file.
@@ -173,6 +190,23 @@ A change is done when **all** are true:
   `package.json` already pins `"packageManager": "pnpm@10.33.0"`, and the action refuses to
   run at all ("Multiple versions of pnpm specified") when both are set. Let the action read
   the version from `packageManager` alone.
+- This sandbox's outbound network policy hard-blocks Docker Hub's registry CDN and `supabase.co`
+  directly (403, confirmed via the proxy status endpoint, not a fixable retry). Raw-TCP database
+  connections are also categorically unsupported through this session's proxy regardless of
+  host. Net effect: **no live DB (local Docker or hosted) is reachable from inside this specific
+  sandboxed session** — migrations/RLS tests get authored here and executed/verified by the
+  human (or a different, unrestricted session) against a real Postgres. Don't assume this
+  limitation applies to every environment this repo is developed in — it's this sandbox's policy,
+  not a property of the repo.
+- `scripts/eyes.mjs`'s `chromium.launch()` failed with "Executable doesn't exist" the first time
+  it ran in this environment — the pre-installed Chromium build (`/opt/pw-browsers`, pinned
+  build 1194) didn't match what the installed `@playwright/test` version expected (build 1228).
+  Fixed by passing `executablePath: '/opt/pw-browsers/chromium'` explicitly instead of letting
+  Playwright resolve its own expected bundled browser.
+- Assumed an RLS-blocked cross-user `UPDATE` would raise an error; per Supabase's own security
+  guidance (and confirmed while writing `supabase/tests/profiles_rls.test.sql`) it instead
+  silently matches zero rows (`UPDATE` requires a `SELECT`-visible row first). Test for the row
+  count via `GET DIAGNOSTICS ... = ROW_COUNT`, not `throws_ok`.
 
 ## Overrides
 
@@ -185,5 +219,7 @@ A change is done when **all** are true:
   static/Astro page rather than pulling the whole app into a meta-framework.
 - `app/` uses `oxlint` (shipped by the `create-vite` template) instead of ESLint. Not yet
   reconsidered; revisit if oxlint's rule coverage proves insufficient.
-- Playwright e2e is not installed yet (`e2e/visual.spec.example.ts` is a template, not a
-  running spec) — there are no routes to test. Wire it up alongside the first real page.
+- Playwright (`@playwright/test`, root devDependency) is installed for `scripts/eyes.mjs` as of
+  the first real pages (sign-up/sign-in), but `e2e/visual.spec.example.ts` is still a template,
+  not a running spec — wire up real `@smoke` e2e once there's a journey worth automating
+  end-to-end (not just eyeballing).

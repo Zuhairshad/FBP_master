@@ -37,7 +37,11 @@ const slug = (u) => {
   return (p.host + p.pathname).replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'root';
 };
 
-const browser = await chromium.launch();
+// This environment pre-installs Chromium at a fixed path/build rather than
+// whatever build the installed @playwright/test version expects — pin it
+// explicitly instead of letting Playwright resolve (and fail on) its own
+// expected bundled version.
+const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
 let red = false;
 
 for (const url of urls) {
