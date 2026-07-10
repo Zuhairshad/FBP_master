@@ -296,6 +296,39 @@ export interface Database {
         }
         Relationships: []
       }
+      walmart_tokens: {
+        Row: {
+          id: string
+          brand_id: string
+          client_id: string
+          client_secret: string
+          access_token: string | null
+          access_token_expires_at: string | null
+          last_synced_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          client_id: string
+          client_secret: string
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          last_synced_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          brand_id?: string
+          client_id?: string
+          client_secret?: string
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          last_synced_at?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       ebay_tokens: {
         Row: {
           id: string

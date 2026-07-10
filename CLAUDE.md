@@ -41,7 +41,11 @@ why each of those is a deliberate deviation, not a shortcut). Phase 8 built on t
 that: the fourth marketplace integration — eBay, back to the OAuth-redirect shape
 (like Shopify/TikTok, not Amazon's self-authorization), plus a mandatory
 Marketplace Account Deletion notification endpoint eBay requires independent of any
-order webhook. No real users, no real money.
+order webhook. Phase 9 built on top of that: the fifth and final marketplace
+integration — Walmart, a third distinct auth model (OAuth client-credentials grant,
+brand-submitted Client ID + Client Secret, no browser redirect and no long-lived
+refresh_token at all) — completing all three auth-model shapes this repo has
+encountered across five marketplaces. No real users, no real money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
@@ -409,13 +413,78 @@ mandatory piece none of the first three platforms needed.
    end-to-end against a live eBay sandbox/production app (needs the client's
    re-registered developer.ebay.com account, per ROADMAP.md's blocker note).
 
-**Not yet built (ASSUMPTION, will change as features land):** Phase 9's remaining
-marketplace integration (Walmart) — Phase 5/6's OAuth-redirect shape, Phase 7's
-self-authorization shape, and Phase 8's OAuth-redirect-plus-compliance-endpoint shape
-are all now available templates; pick whichever matches Walmart's actual auth model
-(Walmart's own docs describe a client-credentials grant, distinct from all three so
-far — confirm against Walmart's docs before assuming any existing template fits, the
-same recon discipline every platform integration in this repo has followed).
+**Walmart integration (built, Phase 9):** fifth and final marketplace integration
+for this repo's initial scope — a third, genuinely distinct auth model, not a
+reuse of Phase 5/6/8's OAuth-redirect shape or Phase 7's refresh-token
+self-authorization shape.
+1. **Schema** (`20260710201726_create_walmart_tokens.sql`): `walmart_tokens`
+   mirrors `shopify_tokens`/`tiktok_tokens`/`amazon_tokens`/`ebay_tokens`'
+   zero-RLS shape, but stores `client_id`/`client_secret` (brand-submitted,
+   both durable — see below) rather than a `refresh_token`, plus a cached
+   `access_token`/`access_token_expires_at` pair (15-minute lifetime — the
+   shortest of any platform here). `platform_orders` needed no schema
+   change — its `platform` enum already accepted `'walmart'` since Phase 4.
+2. **Walmart's Marketplace API is an OAuth client-credentials grant** — no
+   browser redirect (like Amazon's self-authorization), but unlike Amazon
+   there is no long-lived `refresh_token` at all. A Walmart seller generates
+   their own per-account Client ID + Client Secret directly in Walmart Seller
+   Center and hands both to the brand, who submits them through
+   `WalmartConnectPage` — same self-authorization trust model as Amazon's
+   brand-submitted refresh token, but the credential shape and the mint
+   mechanism (a fresh access token straight from client_id+client_secret
+   every time, no refresh step) are both different.
+3. **The Worker holds zero app-level Walmart secret** — a first in this
+   repo. Every platform before this one needed at least one shared app-level
+   credential in the Worker's own env (Shopify/TikTok/eBay's OAuth client
+   id+secret used to sign state/verify callbacks, Amazon's LWA client
+   id+secret used to refresh a token) *in addition to* whatever the brand
+   submitted. Walmart's client-credentials grant needs only the
+   brand-submitted `client_id`/`client_secret` — `WalmartWorkerEnv` is just
+   `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`, nothing platform-specific at
+   all (see `worker/src/walmart/env.ts`).
+4. **Worker service layer** (`worker/src/walmart/`): same file shape as
+   every prior platform (`client.ts`/`supabaseAdmin.ts`/`sync.ts`/
+   `handlers.ts`/`env.ts`/`types.ts`). `sync.ts`'s `ensureAccessToken` reuses
+   the same 60-second-skew caching pattern Amazon introduced and eBay
+   reused — more valuable here than anywhere else, since Walmart's
+   15-minute token is the shortest-lived of any platform in this repo.
+   Walmart's Orders API returns order lines inline on the order object
+   (like Shopify/TikTok/eBay, unlike Amazon), so no per-order fan-out call
+   is needed.
+5. **No install/callback pair** (no OAuth redirect flow exists for this
+   auth model, same as Amazon) **and no order webhook** (Walmart's real
+   notification/webhook system needs a separate subscription setup —
+   deferred to Phase 10 same as every platform before it) — three routes
+   total (`GET /walmart/status`, `POST /walmart/connect`,
+   `POST /walmart/sync`), same count as Amazon's.
+6. **Deviated from MSW**, same as every marketplace phase before this one:
+   every network-calling function takes an injected `fetchImpl`. 34 new
+   worker tests (226 total in the worker, 273 across app+worker), all in
+   the Workers runtime.
+7. **Frontend:** `/brand/walmart` (`WalmartConnectPage` — Client ID +
+   Client Secret paste-in form, same shape as `AmazonConnectPage`'s
+   refresh-token+marketplace-id form), `/brand/walmart/orders`
+   (`WalmartOrdersPage`, built with the `.eq('platform', 'walmart')` filter
+   from the start, same discipline as Phase 7/8's pages).
+8. **ASSUMPTION / confidence note:** Walmart's own docs portal
+   (`developer.walmart.com`) also returned HTTP 403 from this sandbox when
+   fetched directly via `WebFetch` — same class of block as every other
+   marketplace platform's docs site (see Landmines). `WebSearch`'s result
+   synthesis quoted `developer.walmart.com`'s own page content directly
+   (the token endpoint URL, the client-credentials grant shape, the
+   required `WM_*` headers, the 15-minute token lifetime, the orders
+   response's nested `list.elements.order` shape) — same
+   first-party-source-not-fetch posture as Phase 8's eBay integration.
+   Every code path is unit-tested against this documented format;
+   UNVERIFIED end-to-end against a live Walmart seller account (needs the
+   client's new US-based Walmart seller account, per ROADMAP.md's blocker
+   note).
+
+**All five marketplace integrations for this repo's initial scope are now
+built** (Shopify, TikTok, Amazon, eBay, Walmart — Phases 5-9), covering all
+three auth-model shapes encountered: OAuth-redirect (Shopify/TikTok/eBay),
+refresh-token self-authorization (Amazon), and client-credentials
+self-authorization (Walmart). Phase 10 (Order Sync Automation) is next.
 
 ## Stack rules
 
@@ -487,11 +556,12 @@ same recon discipline every platform integration in this repo has followed).
   starting assumption, but MSW's Node-network-layer interception has no defined relationship
   to workerd's native `fetch`, and this dependency-injection boundary sidesteps the question
   entirely with no new dependency. Confirmed again in Phase 6's `worker/src/tiktok/` (49
-  more tests), Phase 7's `worker/src/amazon/` (37 more tests), and Phase 8's
-  `worker/src/ebay/` (44 more tests, 192 total in the worker, 234 across app+worker) —
-  use this pattern for Phase 9's Walmart integration too, rather than reaching for MSW
-  in the Worker.
-- **Shared vs. per-platform Worker code (decided in Phase 6, held through Phase 7-8):**
+  more tests), Phase 7's `worker/src/amazon/` (37 more tests), Phase 8's
+  `worker/src/ebay/` (44 more tests), and Phase 9's `worker/src/walmart/` (34 more
+  tests, 226 total in the worker, 273 across app+worker) — this pattern has now
+  covered every auth-model shape this repo's marketplace integrations use; no
+  future platform integration should reach for MSW in the Worker either.
+- **Shared vs. per-platform Worker code (decided in Phase 6, held through Phase 7-9):**
   `worker/src/shared/` holds primitives with no platform-specific logic (`hmac.ts`,
   `oauthState.ts` — moved out of `shopify/` in Phase 6 once TikTok needed the exact same
   ones, see above). Platform-specific modules (`client.ts`, `supabaseAdmin.ts`,
@@ -506,9 +576,16 @@ same recon discipline every platform integration in this repo has followed).
   worth extracting a shared interface, since eBay's RuName-instead-of-redirect_uri
   quirk and its mandatory account-deletion endpoint (a requirement no other platform
   has at all) are each real, platform-specific enough to make a generalized abstraction
-  leaky rather than clean. The `fetchImpl`-injection and `ensureAccessToken`-shape
-  *patterns* travel between platforms; the modules that use them stay duplicated.
-  Revisit once Phase 9 (Walmart) lands.
+  leaky rather than clean. Phase 9's Walmart integration is a third data point
+  confirming the "reuse patterns, duplicate modules" call: it reuses the
+  `ensureAccessToken`-with-skew *idea* yet again, but its auth model (client-credentials,
+  no refresh_token, no app-level Worker secret at all) is different enough from both
+  Shopify/TikTok/eBay's redirect flow and Amazon's refresh-token flow that no single
+  shared interface could express all three cleanly. With five platforms and three
+  distinct auth-model shapes now built, this decision is considered settled for this
+  repo's remaining marketplace work, not just provisional. The `fetchImpl`-injection
+  and `ensureAccessToken`-shape *patterns* travel between platforms; the modules that
+  use them stay duplicated.
 
 ## Environment & secrets
 
@@ -535,9 +612,13 @@ same recon discipline every platform integration in this repo has followed).
     `shared/oauthState.ts`), `EBAY_RU_NAME` (eBay's assigned redirect identifier, used
     in place of a literal `redirect_uri` — see Phase 8 write-up), `EBAY_VERIFICATION_TOKEN`
     (for the mandatory marketplace-account-deletion endpoint's challenge hash; reuses the
-    existing `APP_URL`/`WORKER_URL` bindings otherwise)
-  - More will be added per marketplace integration (Walmart client IDs and
-    secrets) — each addition updates this list and the relevant `.example` file.
+    existing `APP_URL`/`WORKER_URL` bindings otherwise). **Walmart (Phase 9) needs no new
+    var at all** — its client-credentials grant uses only the brand-submitted
+    `client_id`/`client_secret` stored in `walmart_tokens`, entered via
+    `WalmartConnectPage`; see Phase 9 write-up.
+  - This completes every marketplace integration in this repo's initial scope
+    (Shopify/TikTok/Amazon/eBay/Walmart, Phases 5-9). Future marketplace additions
+    (if any) would extend this list the same way each phase above did.
 
 ## Definition of Done
 
@@ -688,6 +769,26 @@ A change is done when **all** are true:
   next time: check a marketplace's compliance/GDPR-notification requirements
   separately from its order-sync webhook requirements — the two are easy to conflate
   but are answered by completely different parts of a platform's docs.
+- **Walmart's docs portal (`developer.walmart.com`) also returned HTTP 403** when
+  fetched directly via `WebFetch` from this sandbox — same failure mode as every
+  other marketplace platform's docs site above. Same fallback class as Phase 8's
+  eBay integration: `WebSearch`'s result synthesis quoted `developer.walmart.com`'s
+  own page content directly (the token endpoint, the client-credentials grant
+  shape, the required `WM_*` headers, the 15-minute token lifetime, the orders
+  response's nested shape) rather than third-party paraphrase. Flagged the same
+  ASSUMPTION-grade way in `worker/src/walmart/client.ts`/`types.ts`, pending live
+  verification against a real Walmart seller account.
+- **Walmart's auth model doesn't fit either existing template** — worth noting
+  explicitly since by Phase 9, two templates (OAuth-redirect from Shopify/TikTok/
+  eBay, refresh-token self-authorization from Amazon) already existed and it would
+  have been easy to force-fit Walmart into the closer-looking one (Amazon's, since
+  neither has a browser redirect). It doesn't: Walmart's client-credentials grant
+  has no refresh_token concept at all — client_id/client_secret themselves are
+  reused on every access-token mint, not exchanged once for a longer-lived
+  refresh_token the way Amazon's flow works. The tell for next time: "no OAuth
+  redirect" is not the same shape every time — check whether a durable long-lived
+  token exists at all before assuming a template fits, don't just pattern-match on
+  the absence of a browser redirect step.
 
 ## Overrides
 

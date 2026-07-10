@@ -370,14 +370,80 @@ sandbox/production app.
 
 ---
 
-## Phase 9 — Marketplace Integration: Walmart `[ ]`
+## Phase 9 — Marketplace Integration: Walmart `[~]`
 
 **Blocked on (live testing):** client needs a new US-based Walmart seller account
-(prior one terminated) — build and test against mocks regardless.
+(prior one terminated) — built and tested against Walmart's documented API shapes
+regardless, same policy as every marketplace phase before this one. Walmart's own
+docs portal (`developer.walmart.com`) also returned HTTP 403 from this sandbox's
+network policy when fetched directly via WebFetch (same class of block as every
+other marketplace platform's docs site) — but WebSearch's result synthesis quoted
+developer.walmart.com's own page content directly (the token endpoint, the
+client-credentials grant shape, the required `WM_*` headers, the 15-minute token
+lifetime, the orders response's nested `list.elements.order` shape) — same
+first-party-source-not-fetch posture as Phase 8's eBay integration. Everything is
+unit-tested against this documented format; UNVERIFIED end-to-end against a live
+Walmart seller account.
 
-- [ ] `WalmartApiService` (client-credentials flow) + `walmart_tokens` + webhook/sync route
-- [ ] Worker tests (MSW), RLS tests, connect + order UI, `@smoke`
-- [ ] Floor + tests + build + smoke; Eyes
+- [x] **A third, distinct auth model** — deviated from the Shopify/TikTok/eBay
+      redirect-flow template and from Amazon's refresh-token-self-authorization
+      template, on purpose. Walmart's Marketplace API uses an OAuth
+      **client-credentials** grant: no browser redirect (like Amazon), but also no
+      long-lived refresh_token at all (unlike Amazon) — a seller generates their own
+      Client ID + Client Secret directly in Walmart Seller Center and hands both to
+      the brand, who submits them through our own form (`WalmartConnectPage`).
+      Every sync mints a fresh access token straight from client_id+client_secret;
+      those two values are the durable credential, reused on every mint.
+- [x] **The Worker holds zero app-level Walmart secret** — a first in this repo.
+      Every prior platform's Worker env needed at least one shared app-level
+      credential (Shopify/TikTok/eBay's OAuth client id+secret, Amazon's LWA client
+      id+secret) alongside whatever the brand submitted. Walmart's client-credentials
+      grant needs only the brand-submitted client_id/client_secret — `WalmartWorkerEnv`
+      is just `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`, see `worker/src/walmart/env.ts`.
+- [x] Migration: `walmart_tokens` (mirrors shopify_tokens/tiktok_tokens/amazon_tokens/
+      ebay_tokens — zero RLS policies, service-role only; `platform_orders` needed no
+      schema change, its `platform` column already accepts `'walmart'`)
+- [x] Worker: `worker/src/walmart/` — client-credentials token minting
+      (`mintAccessToken`), access-token caching with a 60s expiry skew via
+      `ensureAccessToken` (same shape as Amazon's/eBay's, more valuable here since
+      Walmart's 15-minute token is the shortest-lived of any platform in this repo),
+      order fetch (order lines arrive inline, no per-order fan-out call needed —
+      like Shopify/TikTok/eBay, unlike Amazon), SKU-resolved upsert, manual sync
+      endpoint, `/walmart/status`, `/walmart/connect` (accepts brand-submitted
+      `{clientId, clientSecret}`, same shape as Amazon's `handleConnect`)
+- [x] **No install/callback pair** (no OAuth redirect flow exists for this auth
+      model) and **no webhook** (Walmart's real notification system needs a
+      separate subscription setup — deferred to Phase 10 same as every platform
+      before it; manual sync only for now) — three routes total, same count as
+      Amazon's.
+- [x] **Deviated from MSW**, same as every marketplace phase before this one: every
+      network-calling function takes an injected `fetchImpl`. 34 new worker tests
+      (226 total across worker, 273 across app+worker), all in the Workers runtime
+- [x] RLS tests: `walmart_tokens_rls.test.sql` (zero-policy shape, mirrors
+      `shopify_tokens_rls.test.sql`/`tiktok_tokens_rls.test.sql`/
+      `amazon_tokens_rls.test.sql`/`ebay_tokens_rls.test.sql`) — written, **not yet
+      executed against a live Postgres** (same sandbox DB blocker as every phase so
+      far)
+- [x] Frontend: `WalmartConnectPage` (Client ID + Client Secret paste-in form, same
+      shape as `AmazonConnectPage`'s refresh-token+marketplace-id form), `WalmartOrdersPage`
+      (with the `.eq('platform', 'walmart')` filter built in from the start, same
+      discipline as Phase 7/8's pages)
+- [ ] e2e `@smoke`: same carried-forward, repo-wide gap as every prior marketplace
+      phase (Phase 13 closes it)
+- [x] Floor + Foundation rung (new platform module + widened `Env` type) + build +
+      `wrangler deploy --dry-run` — all green
+- [x] Eyes: unauthenticated redirect confirmed clean on `/brand/walmart` and
+      `/brand/walmart/orders` (desktop + mobile, no console errors); **full visual
+      check of the authenticated flows is UNVERIFIED** (needs a live session, same
+      DB blocker as every phase so far). Client-credentials round-trip against a
+      real Walmart seller account is UNVERIFIED end-to-end (needs the client's new
+      US-based Walmart seller account, per the blocker above)
+
+**All five Phase 5-9 marketplace integrations are now built** — Shopify, TikTok,
+Amazon, eBay, Walmart — covering all three auth-model shapes this repo has
+encountered (OAuth-redirect, refresh-token self-authorization, client-credentials
+self-authorization). Phase 10 (Order Sync Automation) is next up per the roadmap
+order.
 
 ---
 

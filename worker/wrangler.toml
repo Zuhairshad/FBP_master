@@ -28,3 +28,9 @@ compatibility_flags = ["nodejs_compat"]
 # EBAY_VERIFICATION_TOKEN (for the mandatory marketplace-account-deletion
 # endpoint challenge hash — see worker/src/ebay/handlers.ts). Reuses the
 # existing APP_URL/WORKER_URL bindings.
+#
+# Phase 9 (Walmart) needs no new binding at all: Walmart's client-credentials
+# grant uses only the brand-submitted client_id/client_secret stored in
+# walmart_tokens — SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY (already present
+# above) are the only bindings worker/src/walmart/ touches; see
+# worker/src/walmart/env.ts.

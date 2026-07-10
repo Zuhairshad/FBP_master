@@ -40,3 +40,8 @@ EBAY_CLIENT_ID=
 EBAY_CLIENT_SECRET=
 EBAY_RU_NAME=
 EBAY_VERIFICATION_TOKEN=
+
+# Walmart (Phase 9): no vars needed here at all. Walmart's client-credentials
+# grant uses only the brand-submitted client_id/client_secret pair stored in
+# walmart_tokens (entered via WalmartConnectPage) — see
+# worker/src/walmart/env.ts and the walmart_tokens migration's header comment.
