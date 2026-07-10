@@ -37,8 +37,11 @@ top of that: the second marketplace integration — TikTok Shop, same shape as S
 sharing `platform_orders` with no schema change. Phase 7 built on top of that: the third
 marketplace integration — Amazon SP-API, structurally different from Shopify/TikTok
 (no OAuth redirect flow, no request signing, no webhook — see its write-up below for
-why each of those is a deliberate deviation, not a shortcut). No real users, no real
-money.
+why each of those is a deliberate deviation, not a shortcut). Phase 8 built on top of
+that: the fourth marketplace integration — eBay, back to the OAuth-redirect shape
+(like Shopify/TikTok, not Amazon's self-authorization), plus a mandatory
+Marketplace Account Deletion notification endpoint eBay requires independent of any
+order webhook. No real users, no real money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
@@ -335,10 +338,84 @@ how Amazon's own SP-API actually works, not by choice.
    account (needs the client's production refresh token), but on firmer footing than
    Phase 6's TikTok ASSUMPTIONs.
 
-**Not yet built (ASSUMPTION, will change as features land):** Phases 8-9's remaining
-marketplace integrations (eBay, Walmart) — Phase 5/6's OAuth-redirect shape and Phase
-7's self-authorization shape are both now available templates; pick whichever matches
-each platform's actual auth model rather than defaulting to the OAuth-redirect one.
+**eBay integration (built, Phase 8):** fourth marketplace integration — back to the
+OAuth-redirect shape (Phase 5/6's template), not Amazon's self-authorization, plus one
+mandatory piece none of the first three platforms needed.
+1. **Schema** (`20260710200057_create_ebay_tokens.sql`): `ebay_tokens` mirrors
+   `shopify_tokens`/`tiktok_tokens`/`amazon_tokens`' zero-RLS shape. Stores both
+   `refresh_token`/`refresh_token_expires_at` (eBay documents ~18 months) and a cached
+   `access_token`/`access_token_expires_at` pair (2-hour lifetime) — same caching
+   need as Amazon's LWA token, different OAuth model to get there.
+   `platform_orders` needed no schema change — its `platform` enum already accepted
+   `'ebay'` since Phase 4.
+2. **eBay's OAuth is the authorization-code-grant redirect flow**, same shape as
+   Shopify/TikTok's install/callback pair — but with one eBay-specific quirk: the
+   `redirect_uri` parameter passed to `/oauth2/authorize` and to the token-exchange
+   call must be a "RuName", an identifier eBay assigns per registered app in the
+   Developer Portal (which itself maps to accept/decline URLs configured there), not
+   a literal callback URL the way Shopify's `WORKER_URL`-based redirect_uri is. See
+   `worker/src/ebay/env.ts`'s `EBAY_RU_NAME` and `client.ts`'s `buildAuthorizeUrl`.
+3. **Worker service layer** (`worker/src/ebay/`): same file shape as every prior
+   platform (`client.ts`/`supabaseAdmin.ts`/`sync.ts`/`handlers.ts`/`env.ts`/
+   `types.ts`), importing the shared `hmac.ts`/`oauthState.ts` primitives. `sync.ts`'s
+   `ensureAccessToken` reuses Amazon's 60-second-skew caching pattern verbatim (both
+   tokens are short-lived enough to need it, unlike Shopify's non-expiring token).
+   eBay's Fulfillment API returns line items inline on the order object (like
+   Shopify/TikTok, unlike Amazon), so no per-order fan-out call is needed here.
+4. **Mandatory Marketplace Account Deletion notification endpoint** — a genuinely new
+   requirement, not present in any prior platform. eBay requires every app that
+   stores eBay user data to subscribe to and correctly answer a challenge/
+   verification handshake before the subscription is accepted (`GET` with a
+   `challenge_code` query param → respond `{"challengeResponse":
+   sha256hex(challengeCode + verificationToken + endpoint)}`), and to acknowledge
+   every subsequent notification with 200 — non-compliance risks Developer Program
+   access termination, independent of whether the app has an order webhook at all.
+   Built as `GET`/`POST /webhooks/ebay/account-deletion`
+   (`handleDeletionChallenge`/`handleDeletionNotification` in
+   `worker/src/ebay/handlers.ts`), using `crypto.subtle.digest` (Web Crypto, native
+   in the Workers runtime) for the SHA-256 hash — no HMAC involved, distinct from
+   every other signature primitive in this repo. **Scope note / ASSUMPTION:** this
+   app has no column correlating an eBay userId/username (the identifiers in the
+   notification payload) back to a `brand_id` — `ebay_tokens` is keyed by our own
+   `brand_id`, not eBay's user identity — so `handleDeletionNotification`
+   acknowledges every notification but does not yet perform per-brand token
+   revocation from the payload alone. Revisit if this becomes a real compliance gap
+   (would need capturing the eBay username at connect-time to make the correlation
+   possible).
+5. **No order webhook** (distinct from the deletion-notification endpoint above,
+   which is mandatory regardless) — deferred to Phase 10 same as every platform
+   before it; manual `/ebay/sync` only for now.
+6. **Deviated from MSW**, same as every marketplace phase before this one: every
+   network-calling function takes an injected `fetchImpl`. 44 new worker tests (192
+   total in the worker, 234 across app+worker).
+7. **Routes**: `GET /ebay/status`, `POST /ebay/install`, `GET /ebay/callback`,
+   `POST /ebay/sync`, `GET`/`POST /webhooks/ebay/account-deletion` — dispatched from
+   the same `worker/src/index.ts`, whose `Env` type now extends `ShopifyWorkerEnv`,
+   `TiktokWorkerEnv`, `AmazonWorkerEnv`, and `EbayWorkerEnv`.
+8. **Frontend:** `/brand/ebay` (`EbayConnectPage` — redirect-flow connect button, no
+   shop-identifier form, same shape as `TiktokConnectPage` since eBay's authorize URL
+   has no shop-domain parameter either), `/brand/ebay/orders` (`EbayOrdersPage`,
+   built with the `.eq('platform', 'ebay')` filter from the start, same discipline as
+   Phase 7's Amazon page).
+9. **ASSUMPTION / confidence note:** eBay's own docs portal (`developer.ebay.com`)
+   also returned HTTP 403 from this sandbox when fetched directly via `WebFetch` —
+   same class of block as TikTok's and Amazon's docs sites (see Landmines). Unlike
+   TikTok's purely-secondary-source posture, though, `WebSearch`'s result synthesis
+   here quoted `developer.ebay.com`'s own page content directly (the exact
+   request/response field names, the RuName mechanic, the account-deletion
+   challenge-hash algorithm) rather than paraphrasing a third-party description of
+   the same spec — a first-party *source*, though still not a first-party *fetch*.
+   Every code path is unit-tested against this documented format; UNVERIFIED
+   end-to-end against a live eBay sandbox/production app (needs the client's
+   re-registered developer.ebay.com account, per ROADMAP.md's blocker note).
+
+**Not yet built (ASSUMPTION, will change as features land):** Phase 9's remaining
+marketplace integration (Walmart) — Phase 5/6's OAuth-redirect shape, Phase 7's
+self-authorization shape, and Phase 8's OAuth-redirect-plus-compliance-endpoint shape
+are all now available templates; pick whichever matches Walmart's actual auth model
+(Walmart's own docs describe a client-credentials grant, distinct from all three so
+far — confirm against Walmart's docs before assuming any existing template fits, the
+same recon discipline every platform integration in this repo has followed).
 
 ## Stack rules
 
@@ -410,10 +487,11 @@ each platform's actual auth model rather than defaulting to the OAuth-redirect o
   starting assumption, but MSW's Node-network-layer interception has no defined relationship
   to workerd's native `fetch`, and this dependency-injection boundary sidesteps the question
   entirely with no new dependency. Confirmed again in Phase 6's `worker/src/tiktok/` (49
-  more tests) and Phase 7's `worker/src/amazon/` (37 more tests, 185 total across
-  app+worker) — use this pattern for Phases 8-9's eBay/Walmart integrations too, rather
-  than reaching for MSW in the Worker.
-- **Shared vs. per-platform Worker code (decided in Phase 6, held through Phase 7):**
+  more tests), Phase 7's `worker/src/amazon/` (37 more tests), and Phase 8's
+  `worker/src/ebay/` (44 more tests, 192 total in the worker, 234 across app+worker) —
+  use this pattern for Phase 9's Walmart integration too, rather than reaching for MSW
+  in the Worker.
+- **Shared vs. per-platform Worker code (decided in Phase 6, held through Phase 7-8):**
   `worker/src/shared/` holds primitives with no platform-specific logic (`hmac.ts`,
   `oauthState.ts` — moved out of `shopify/` in Phase 6 once TikTok needed the exact same
   ones, see above). Platform-specific modules (`client.ts`, `supabaseAdmin.ts`,
@@ -421,11 +499,16 @@ each platform's actual auth model rather than defaulting to the OAuth-redirect o
   platform rather than abstracted behind a shared interface — Phase 7 made this the
   obviously correct call, not just a two-platform guess: Amazon's auth model
   (self-authorization, no OAuth redirect, no request signing, no webhook) differs from
-  Shopify/TikTok's so fundamentally that even `oauthState.ts` doesn't apply to it. A
-  shared interface across all three would have to be either near-empty or leaky. Revisit
-  once Phase 8-9 (eBay, Walmart) land — if either turns out to share Amazon's
-  self-authorization shape rather than Shopify/TikTok's OAuth-redirect shape, that's a
-  second data point for which parts (if any) are actually worth factoring out.
+  Shopify/TikTok's so fundamentally that even `oauthState.ts` doesn't apply to it. Phase
+  8's eBay integration is a second data point in the *other* direction: it shares
+  Shopify/TikTok's OAuth-redirect shape closely enough to reuse `oauthState.ts` and the
+  same `ensureAccessToken`-with-skew caching idea Amazon introduced — but it still isn't
+  worth extracting a shared interface, since eBay's RuName-instead-of-redirect_uri
+  quirk and its mandatory account-deletion endpoint (a requirement no other platform
+  has at all) are each real, platform-specific enough to make a generalized abstraction
+  leaky rather than clean. The `fetchImpl`-injection and `ensureAccessToken`-shape
+  *patterns* travel between platforms; the modules that use them stay duplicated.
+  Revisit once Phase 9 (Walmart) lands.
 
 ## Environment & secrets
 
@@ -447,8 +530,13 @@ each platform's actual auth model rather than defaulting to the OAuth-redirect o
     signatures), `AMAZON_CLIENT_ID`, `AMAZON_CLIENT_SECRET` (LWA app credentials, used only
     to refresh a brand-submitted refresh token into a short-lived access token — no
     APP_URL/WORKER_URL equivalent either, since Amazon's self-authorization model has no
-    OAuth redirect flow at all, see Phase 7 write-up)
-  - More will be added per marketplace integration (eBay/Walmart client IDs and
+    OAuth redirect flow at all, see Phase 7 write-up), `EBAY_CLIENT_ID`,
+    `EBAY_CLIENT_SECRET` (also signs the OAuth install-state token, reusing
+    `shared/oauthState.ts`), `EBAY_RU_NAME` (eBay's assigned redirect identifier, used
+    in place of a literal `redirect_uri` — see Phase 8 write-up), `EBAY_VERIFICATION_TOKEN`
+    (for the mandatory marketplace-account-deletion endpoint's challenge hash; reuses the
+    existing `APP_URL`/`WORKER_URL` bindings otherwise)
+  - More will be added per marketplace integration (Walmart client IDs and
     secrets) — each addition updates this list and the relevant `.example` file.
 
 ## Definition of Done
@@ -578,6 +666,28 @@ A change is done when **all** are true:
   account — same posture, better grounding. If a docs-portal fetch ever works from a
   future session, reconcile the LWA/SigV4 claims against the first-party page before any
   live Amazon credential is wired up.
+- **eBay's docs portal (`developer.ebay.com`) also returned HTTP 403** when fetched
+  directly via `WebFetch` from this sandbox — same failure mode as TikTok's and
+  Amazon's docs sites above. The fallback here was a third kind, distinct from both
+  prior ones: `WebSearch`'s result synthesis quoted `developer.ebay.com`'s own page
+  content directly (exact request/response field names, the RuName redirect-uri
+  mechanic, the account-deletion challenge-hash algorithm) rather than either (a) a
+  first-party machine-readable schema fetched from elsewhere (Amazon's GitHub-repo
+  fallback) or (b) purely third-party paraphrase of the same spec (TikTok's posture).
+  Treated this as firmer than TikTok's grounding but still short of an actual fetched
+  page, so every eBay code path is flagged the same ASSUMPTION-grade way as TikTok's
+  and Amazon's (`worker/src/ebay/client.ts`, `types.ts`) pending live verification. If
+  a docs-portal fetch ever succeeds from a future session, reconcile the OAuth
+  request/response shapes and the challenge-hash algorithm against the first-party
+  page before any live eBay credential is wired up.
+- **eBay requires a compliance endpoint no other platform in this repo needed**: the
+  Marketplace Account Deletion notification subscription (see the Phase 8 write-up
+  above). This is easy to miss because it isn't an order webhook and isn't optional —
+  eBay's Developer Program can restrict API access for an app that stores eBay user
+  data without a working, correctly-hashed challenge-response endpoint. The tell for
+  next time: check a marketplace's compliance/GDPR-notification requirements
+  separately from its order-sync webhook requirements — the two are easy to conflate
+  but are answered by completely different parts of a platform's docs.
 
 ## Overrides
 

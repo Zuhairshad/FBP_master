@@ -83,3 +83,20 @@ export interface AmazonStatus {
 export function getAmazonStatus(accessToken: string): Promise<AmazonStatus> {
   return callWorker('/amazon/status', accessToken)
 }
+
+export function requestEbayInstallUrl(accessToken: string): Promise<{ url: string }> {
+  return callWorker('/ebay/install', accessToken, { method: 'POST' })
+}
+
+export function triggerEbaySync(accessToken: string): Promise<{ syncedCount: number }> {
+  return callWorker('/ebay/sync', accessToken, { method: 'POST' })
+}
+
+export interface EbayStatus {
+  connected: boolean
+  lastSyncedAt?: string | null
+}
+
+export function getEbayStatus(accessToken: string): Promise<EbayStatus> {
+  return callWorker('/ebay/status', accessToken)
+}

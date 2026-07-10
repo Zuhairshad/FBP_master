@@ -21,6 +21,8 @@ import { TiktokConnectPage } from './pages/TiktokConnectPage'
 import { TiktokOrdersPage } from './pages/TiktokOrdersPage'
 import { AmazonConnectPage } from './pages/AmazonConnectPage'
 import { AmazonOrdersPage } from './pages/AmazonOrdersPage'
+import { EbayConnectPage } from './pages/EbayConnectPage'
+import { EbayOrdersPage } from './pages/EbayOrdersPage'
 import { ProviderOrdersPage } from './pages/ProviderOrdersPage'
 
 function App() {
@@ -46,6 +48,8 @@ function App() {
               <Route path="/brand/tiktok/orders" element={<TiktokOrdersPage />} />
               <Route path="/brand/amazon" element={<AmazonConnectPage />} />
               <Route path="/brand/amazon/orders" element={<AmazonOrdersPage />} />
+              <Route path="/brand/ebay" element={<EbayConnectPage />} />
+              <Route path="/brand/ebay/orders" element={<EbayOrdersPage />} />
             </Route>
 
             <Route element={<RequireRole role="provider" />}>

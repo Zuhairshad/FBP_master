@@ -20,9 +20,18 @@ import {
   handleSync as handleAmazonSync,
 } from './amazon/handlers'
 import type { AmazonWorkerEnv } from './amazon/env'
+import {
+  handleCallback as handleEbayCallback,
+  handleDeletionChallenge as handleEbayDeletionChallenge,
+  handleDeletionNotification as handleEbayDeletionNotification,
+  handleInstall as handleEbayInstall,
+  handleStatus as handleEbayStatus,
+  handleSync as handleEbaySync,
+} from './ebay/handlers'
+import type { EbayWorkerEnv } from './ebay/env'
 
-export interface Env extends ShopifyWorkerEnv, TiktokWorkerEnv, AmazonWorkerEnv {
-  // Further per-marketplace bindings (Phases 8-9) land here as they're wired up.
+export interface Env extends ShopifyWorkerEnv, TiktokWorkerEnv, AmazonWorkerEnv, EbayWorkerEnv {
+  // Further per-marketplace bindings (Phase 9) land here as they're wired up.
 }
 
 export default {
@@ -84,6 +93,30 @@ export default {
 
     if (method === 'POST' && url.pathname === '/amazon/sync') {
       return handleAmazonSync(request, env)
+    }
+
+    if (method === 'GET' && url.pathname === '/ebay/status') {
+      return handleEbayStatus(request, env)
+    }
+
+    if (method === 'POST' && url.pathname === '/ebay/install') {
+      return handleEbayInstall(request, env)
+    }
+
+    if (method === 'GET' && url.pathname === '/ebay/callback') {
+      return handleEbayCallback(request, env)
+    }
+
+    if (method === 'POST' && url.pathname === '/ebay/sync') {
+      return handleEbaySync(request, env)
+    }
+
+    if (method === 'GET' && url.pathname === '/webhooks/ebay/account-deletion') {
+      return handleEbayDeletionChallenge(request, env)
+    }
+
+    if (method === 'POST' && url.pathname === '/webhooks/ebay/account-deletion') {
+      return handleEbayDeletionNotification(request)
     }
 
     return new Response('Not found', { status: 404 })

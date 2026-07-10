@@ -21,3 +21,10 @@ compatibility_flags = ["nodejs_compat"]
 # access tokens from a brand-submitted refresh token — no APP_URL/WORKER_URL
 # equivalent either, since there is no OAuth redirect flow at all for
 # Amazon's self-authorization model; see worker/src/amazon/handlers.ts).
+#
+# Phase 8 (eBay) additionally needs: EBAY_CLIENT_ID, EBAY_CLIENT_SECRET,
+# EBAY_RU_NAME (eBay's OAuth redirect_uri parameter must be a "RuName" it
+# assigns per registered app, not a literal URL — see worker/src/ebay/client.ts),
+# EBAY_VERIFICATION_TOKEN (for the mandatory marketplace-account-deletion
+# endpoint challenge hash — see worker/src/ebay/handlers.ts). Reuses the
+# existing APP_URL/WORKER_URL bindings.
