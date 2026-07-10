@@ -169,6 +169,10 @@ A change is done when **all** are true:
   walk up from the edited file to the nearest `package.json` and run **that package's own**
   `lint` script, so it works for any linter and both `app/` and `worker/` without hardcoding a
   tool name.
+- CI's `pnpm/action-setup@v4` step must **not** pass an explicit `version:` input — root
+  `package.json` already pins `"packageManager": "pnpm@10.33.0"`, and the action refuses to
+  run at all ("Multiple versions of pnpm specified") when both are set. Let the action read
+  the version from `packageManager` alone.
 
 ## Overrides
 
