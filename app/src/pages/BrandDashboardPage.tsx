@@ -14,6 +14,9 @@ export function BrandDashboardPage() {
         <Link to="/brand/inventory" className="text-sm underline">
           Manage inventory
         </Link>
+        <Link to="/brand/sku-mappings" className="text-sm underline">
+          Map marketplace SKUs
+        </Link>
       </div>
     </DashboardShell>
   )

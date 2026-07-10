@@ -26,8 +26,9 @@ RLS on `profiles`. Phase 2 built on top: provider warehouse setup (`warehouses` 
 both owner-only RLS with a role check on insert. Phase 3 built on top of that: a directory
 so brands can browse providers/warehouses, a brand↔provider booking request flow
 (`booking_requests`, pending/approved/rejected), and brand-owned `inventory` that becomes
-visible to a provider once a booking is approved. No marketplace integrations exist yet. No
-real users, no real money.
+visible to a provider once a booking is approved. Phase 4 built on top of that: `sku_mappings`
+resolves a marketplace SKU back to a brand's Master SKU, brand-owned via a trigger-derived
+`brand_id`. No marketplace integrations exist yet. No real users, no real money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
@@ -137,9 +138,30 @@ Frontend: `/brand/bookings` (`BookingsPage` — browse + request), `/brand/inven
 approve/reject), `/provider/inventory` (`ProviderInventoryPage` — read-only), all plain
 RLS-authorized CRUD against Supabase directly, same pattern as Phase 2.
 
-**Not yet built (ASSUMPTION, will change as features land):** SKU-mapping schema (Phase 4)
-and the marketplace integrations themselves — the target shape carried over from the prior
-version's design.
+**SKU mapping (built, Phase 4):** `sku_mappings` (`20260710135941_create_sku_mappings.sql`)
+resolves a marketplace-assigned `platform_sku` back to a brand's `products` row
+(`product_id`), so Phase 5+'s order sync has something to resolve incoming SKUs against.
+`platform` is a new enum (`amazon`/`tiktok`/`ebay`/`walmart`/`shopify`). Uniqueness is
+"one brand can't map the same `platform_sku` twice per platform" — `(brand_id, platform,
+platform_sku)` — but a unique constraint can't span the join to `products.brand_id`, so
+`brand_id` is denormalized onto `sku_mappings` itself, set by a `BEFORE INSERT`
+`SECURITY DEFINER` trigger (`set_sku_mapping_brand_id`, same shape as `booking_requests`'
+`provider_id` derivation) that resolves it from `product_id`. This derivation does double
+duty as the authorization check: unlike `products`/`warehouses` (self-referential ownership,
+needed an explicit role check in `INSERT`'s `WITH CHECK`), here `brand_id` always resolves
+to the product's *actual* owner regardless of who's inserting, so a brand attempting to map
+a SKU onto another brand's `product_id` gets its own id overwritten by the trigger and then
+rejected by `WITH CHECK` for not matching — no separate role check needed, since `products`'
+own insert policy already gates who could own a product in the first place. RLS: owner-only
+select/insert/delete, **no update policy** — a wrong mapping is deleted and recreated, not
+edited in place (ASSUMPTION: simplest option given no UI need for it yet). Frontend:
+`/brand/sku-mappings` (`SkuMappingsPage`) — form to add one mapping at a time + list with
+delete; the roadmap's Phase 4 goal specifies "bulk entry", which this does **not** yet do
+(see `ROADMAP.md` scope note) — single-row entry only, matching `ProductsPage`/
+`InventoryPage`'s existing form pattern.
+
+**Not yet built (ASSUMPTION, will change as features land):** the marketplace integrations
+themselves (Phase 5+) — the target shape carried over from the prior version's design.
 
 ## Stack rules
 
