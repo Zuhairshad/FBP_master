@@ -136,10 +136,30 @@ jobs:
       # screenshots on this exact Linux runner and commits them straight to
       # the branch the workflow was dispatched against. Never runs on a
       # normal pull_request/push trigger.
+      #
+      # Runs the FULL suite (no file filter), not visual.spec.ts alone: the
+      # real "E2E + visual regression + accessibility" step above always
+      # runs the full suite too (`pnpm exec playwright test`, smoke +
+      # visual together in one invocation, one global-setup, one dev
+      # server), and smoke.spec.ts mutates the seeded order's
+      # fulfillment_status/tracking_number as its last step — so
+      # /provider/orders is always screenshotted *after* that mutation in
+      # a real run. Generating baselines from `playwright test
+      # e2e/visual.spec.ts` alone (an earlier version of this step)
+      # captured the order's pristine pre-mutation state instead — a
+      # permanent, reproducible mismatch against every real comparison run
+      # (misdiagnosed at first as a worker-scheduling race; workers:1 is
+      # still worth keeping since the shared-fixture suite genuinely needs
+      # deterministic ordering, but it wasn't what fixed this specific
+      # diff). --update-snapshots is a no-op for smoke.spec.ts, which has
+      # no screenshot assertions — safe to apply suite-wide. Deliberately
+      # NOT two separate `playwright test` invocations: each one runs its
+      # own global-setup + dev server, and a second sign-up attempt for the
+      # same seeded brand/provider emails would fail outright.
       - name: Generate + commit visual baselines
         if: github.event.inputs.update_snapshots == 'true'
         run: |
-          pnpm exec playwright test e2e/visual.spec.ts --update-snapshots
+          pnpm exec playwright test --update-snapshots
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add e2e/*-snapshots

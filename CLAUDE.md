@@ -1101,22 +1101,44 @@ every RLS/pgTAP test being authored-but-unexecuted.
     plus multiple workers assumes test *isolation*, and the moment two
     spec files touch the same row, that assumption silently breaks in a
     way no sandbox without a live multi-worker Playwright run could ever
-    catch. **Follow-up:** `workers: 1` alone wasn't the full fix — the very
-    next run confirmed serial execution ("Running 28 tests using 1 worker")
-    and produced the *identical* 5228-pixel diff, because the already-
-    committed baseline for `/provider/orders` was itself captured by the
-    pre-fix, nondeterministically-scheduled run (whichever ordering that
-    happened to land in). Serial execution is now deterministic — every
-    future run captures the *same* (post-`smoke.spec.ts`-mutation) state —
-    but the stale baseline still reflected the old, differently-ordered
-    capture. Re-ran the `workflow_dispatch` bootstrap once more on top of
-    the `workers: 1` fix to regenerate that one baseline against the now-
-    stable ordering; this should be the last regeneration needed, since
-    ordering no longer varies run to run. The tell for next time: fixing a
-    scheduling race makes *future* runs deterministic, but doesn't
-    retroactively fix a baseline/fixture/cache that was captured *before*
-    the fix landed — anything snapshotted under the old nondeterministic
-    behavior needs regenerating too, not just the code path that produced it.
+    catch. **Correction, found while chasing the follow-up:** `workers: 1`
+    was a real, worthwhile fix (a shared-fixture suite genuinely isn't safe
+    under unordered parallel workers), but it was **not** what actually
+    caused the `/provider/orders` diff, and the first write-up above
+    mis-attributed it. Proof: after `workers: 1` landed, a fresh
+    `workflow_dispatch` bootstrap run — via `pnpm exec playwright test
+    e2e/visual.spec.ts --update-snapshots`, i.e. **`visual.spec.ts` alone**
+    — reported "No baseline changes to commit" (a byte-for-byte match
+    against the existing baseline), while the very next full-suite
+    comparison run, using the exact same code and the exact same serial
+    `workers: 1` ordering, still failed with the *identical* 5228-pixel
+    diff. Two runs, same commit, same ordering, opposite outcomes — that
+    contradiction is what exposed the real bug: **the baseline-generation
+    command and the real comparison command were never equivalent in
+    scope.** `ci.yml`'s comparison step runs `pnpm exec playwright test`
+    (the full suite — `smoke.spec.ts` *and* `visual.spec.ts` together, one
+    `globalSetup`, one dev server), so `smoke.spec.ts`'s mutation of the
+    seeded order's `fulfillment_status`/`tracking_number` always precedes
+    `visual.spec.ts`'s `/provider/orders` screenshot. But the baseline step
+    ran `playwright test e2e/visual.spec.ts --update-snapshots` — a file
+    filter that **excludes `smoke.spec.ts` entirely** — so the committed
+    baseline permanently captured the order's pristine, pre-mutation state.
+    Every real comparison run would forever disagree with it, deterministic
+    ordering or not. Fixed by changing the baseline step to `pnpm exec
+    playwright test --update-snapshots` (no file filter — the same full
+    suite the comparison step runs; `--update-snapshots` is a no-op for
+    `smoke.spec.ts`, which has no screenshot assertions). Deliberately not
+    two sequential `playwright test` invocations (`smoke.spec.ts` then
+    `visual.spec.ts`): each separate invocation re-runs `globalSetup` and
+    tries to start its own dev server, and re-running `globalSetup` a
+    second time in the same job would attempt to sign up the same seeded
+    brand/provider emails again and fail outright. The tell for next time,
+    compounding the one above: when two runs of *supposedly* identical code
+    under *supposedly* identical conditions disagree, don't keep patching
+    the most recent theory — find the one concrete configuration
+    difference between the two commands actually being compared (here: a
+    file-path filter silently narrowing what a "generate the baseline"
+    command exercises versus what "check the baseline" exercises).
 20. **A twelfth, non-bug wrinkle in the CI plumbing itself**: the
     baseline-bootstrap job's own commit (authored as `github-actions[bot]`
     via `git config user.name`/`user.email` in the "Generate + commit
