@@ -5,17 +5,26 @@
   "scripts": {
     "dev:app": "pnpm --filter app dev",
     "dev:worker": "pnpm --filter worker dev",
-    "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint",
+    "typecheck": "tsc --noEmit && pnpm -r typecheck",
+    "lint": "oxlint e2e playwright.config.ts && pnpm -r lint",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
+    "e2e": "playwright test",
+    "e2e:smoke": "playwright test --grep @smoke",
     "db:new": "supabase migration new",
     "db:reset": "supabase db reset",
     "db:types": "supabase gen types typescript --local > app/src/types/database.ts"
   },
   "packageManager": "pnpm@10.33.0",
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.61.1",
-    "supabase": "^2.109.1"
+    "@supabase/supabase-js": "^2.110.2",
+    "@types/node": "^24.13.3",
+    "@types/pg": "^8.20.0",
+    "oxlint": "^1.73.0",
+    "pg": "^8.22.0",
+    "supabase": "^2.109.1",
+    "typescript": "6.0.2"
   }
 }

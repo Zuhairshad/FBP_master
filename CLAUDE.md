@@ -96,8 +96,13 @@ real users, no real money.
   schema changes happen), and `tests/` (pgTAP RLS policy tests, run via `supabase test db`).
 - `.claude/` — engineering-os hooks (`floor.sh`, `commit-gate.sh`, `remind.sh`) and the `/task`
   command.
-- `e2e/` — Playwright specs. Currently only `visual.spec.example.ts` — rename to `visual.spec.ts`
-  and list real routes once pages exist.
+- `e2e/` — Playwright specs (built, Phase 13): `global-setup.ts` (seeds brand/provider via a
+  real headless sign-up, admin via a direct Postgres trigger-bypass, plus fixture data via the
+  service-role key), `smoke.spec.ts` (`@smoke`-tagged core booking→order→fulfillment journey),
+  `visual.spec.ts` (`@visual`-tagged, every real route, baseline screenshots + axe-core
+  accessibility scan per route). `.auth/` (gitignored) holds the storageState files
+  global-setup produces. `playwright.config.ts` lives at the **repo root**, not inside `e2e/`
+  or `app/` — see Phase 13 write-up for why.
 - `scripts/eyes.mjs` — dev-loop UI screenshot + console-error check (desktop + mobile).
 
 ## Architecture facts
@@ -716,6 +721,123 @@ because Postgres RLS has no way to touch `auth.users` or invalidate a session.
    `profiles` column, expect the same fan-out and grep for `company_name:` (the
    cheapest reliable marker of a `Profile` literal in this codebase) to find every site.
 
+**Testing & Hardening Pass (built, Phase 13):** closes the gaps Phases 1–12
+accumulated — a full RLS audit, real e2e/visual/accessibility infrastructure
+(this repo's first), and CI finally exercising a live Postgres instead of
+every RLS/pgTAP test being authored-but-unexecuted.
+1. **RLS audit found two real, distinct bugs**, not just missing coverage.
+   First: `warehouses_rls.test.sql` fixtured `warehouse_services`/
+   `storage_spaces` rows under provider A only, so its "provider A cannot see
+   provider B's service/space" assertions were vacuously true regardless of
+   whether Phase 3's directory-open SELECT policy existed at all — there was
+   no fixture row under provider B's warehouse for the policy to actually
+   grant or deny access to. Fixed by adding fixture rows under both
+   providers' warehouses and asserting the real positive case (provider A
+   *can* read provider B's rows via the directory policy) alongside the
+   still-correct mutation-negative case. Second: the same file declared
+   `plan(20)` but only had 19 real assertions — a bare count mismatch that
+   would have failed at `finish()` the moment this suite first actually ran,
+   which (per the sandbox limitation below) had never happened before this
+   phase. Every other RLS test file's plan count was verified against its
+   actual assertion count (a plain `grep -c` audit, not manual reading) and
+   all 13 others were already accurate.
+2. **This repo's RLS/pgTAP tests had genuinely never executed against a live
+   Postgres before this phase** — every prior phase's own write-up says so
+   explicitly ("written, not yet executed"), because the sandbox these
+   phases were built in has no Docker access (see Landmines). GitHub
+   Actions runners have both Docker and unrestricted network, so
+   `.github/workflows/ci.yml`'s `supabase start`/`supabase db reset` steps
+   (previously commented out, exactly for this moment) are now live, with a
+   new `supabase test db` step actually running every `supabase/tests/*.sql`
+   file. This is the first time any of this repo's RLS tests have real
+   executable proof behind them rather than just internal consistency.
+3. **Playwright infra, root-level, not inside `app/`**: `playwright.config.ts`
+   + `e2e/global-setup.ts` + `e2e/smoke.spec.ts` + `e2e/visual.spec.ts` (the
+   real file, replacing `visual.spec.example.ts` per that file's own
+   "rename: drop .example" instruction) live at the repo root since e2e
+   exercises the built app *and* would exercise the Worker if any spec
+   needed it — it's a cross-package concern, not `app/`-internal. Needed a
+   new root `tsconfig.json` (scoped to `e2e/**/*.ts` + `playwright.config.ts`)
+   and a new root `.oxlintrc.json`, since neither existed before (root
+   wasn't a workspace member — see `pnpm-workspace.yaml` — so `pnpm
+   typecheck`/`pnpm lint`'s recursive `-r` flag never touched root-level
+   files). Root `package.json` gained `typescript`, `@types/node`, `oxlint`,
+   `@supabase/supabase-js`, `pg`, `@types/pg`, and `@axe-core/playwright` as
+   devDependencies — each justified: the first three so root-level TS files
+   have their own typecheck/lint coverage at all; `@supabase/supabase-js` +
+   `pg` for `global-setup.ts`'s fixture seeding (REST API for
+   brand/provider/order data, a direct Postgres connection only for the
+   admin-account trigger-bypass — see point 5); `@axe-core/playwright` for
+   the accessibility pass (point 4).
+4. **Accessibility pass via axe-core inside the same e2e specs**, not a
+   separate harness — `smoke.spec.ts` scans the brand booking page (the
+   primary form-heavy page in the core journey) and `visual.spec.ts` scans
+   every route it already visits, asserting zero `wcag2a`/`wcag2aa`
+   violations. Deliberately *not* done as jsdom/vitest component tests:
+   contrast is a real-pixel computation vitest's jsdom environment can't
+   perform, so a browser-based check (axe-core running against actual
+   rendered Chromium) is the only mechanism that can honestly claim to have
+   checked contrast, not just ARIA structure.
+5. **`e2e/global-setup.ts` seeds three roles, each a different way,
+   documenting *why* each is different**: brand/provider are self-service,
+   so global-setup drives the real `SignUpPage` form through a headless
+   browser (not a hand-constructed Supabase session) — this is deliberately
+   the *most* faithful path available, exercising the actual signup flow
+   rather than bypassing it. `admin` has no self-service or REST-API
+   provisioning path at all (see the Phase 12-era Landmines entry below) —
+   the only way in is the same trigger-disable-for-one-`UPDATE` technique
+   the pgTAP tests already use, done here via a direct `pg` connection to
+   Supabase CLI's fixed local-dev Postgres (`postgres:postgres@127.0.0.1:
+   54322`, confirmed against `supabase/config.toml`'s `[db]` port, no
+   password override present). This is the first non-pgTAP context in the
+   repo to use that bypass, and it's wrapped in a try/catch that skips
+   admin-fixture creation (not the whole e2e run) on failure —
+   `visual.spec.ts`'s admin `describe` block itself checks whether
+   `e2e/.auth/admin.json` exists and self-skips if the seed didn't happen,
+   so a raw-Postgres-connection failure degrades to "less coverage," not a
+   red build. Warehouse/storage-space/product/`platform_orders` fixture
+   data is seeded via the service-role REST client (the same "bypass RLS,
+   mirror the service-role writer" pattern every pgTAP fixture already
+   uses) — deliberately *not* via a real marketplace OAuth+webhook flow,
+   since driving one of those in e2e is its own multi-day project outside
+   this phase's scope; the booking itself is **not** pre-seeded, since
+   creating and approving it live is exactly what `smoke.spec.ts` exists to
+   prove.
+6. **`e2e/smoke.spec.ts`** drives the exact ROADMAP-specified journey — booking
+   request → provider approval → the seeded order becoming visible via that
+   approval → provider sets `fulfillment_status`/`tracking_number` → brand
+   sees it reflected back read-only — using two real browser contexts
+   (`storageState` from global-setup) rather than one shared session, since
+   the journey is genuinely two-sided and RLS visibility differs per role.
+   Deliberately does **not** re-prove sign-up/sign-in itself (that already
+   happens, for real, in global-setup) — this keeps the smoke spec focused
+   on the journey ROADMAP actually asks for.
+7. **Baseline bootstrap problem, solved via a scoped `workflow_dispatch`
+   path, not by skipping the requirement.** `e2e/visual.spec.ts` needs
+   committed baseline screenshots, but generating them requires a live
+   Linux Playwright run this sandbox cannot do (no Docker, so no local
+   Supabase for the app to run against either) — and TESTING.md is explicit
+   that baselines must come from CI, never from a contributor's own laptop.
+   `ci.yml` gained a `workflow_dispatch` trigger with an `update_snapshots`
+   boolean input; when set, a job-level `permissions: contents: write`
+   override (scoped to this one job, not the workflow default) lets a
+   dedicated step run `playwright test --update-snapshots` and push the
+   resulting `*-snapshots/` directories straight to the dispatched branch.
+   Every regular `pull_request`/`push` run takes neither this permission
+   nor this step. **UNVERIFIED — by design, this is the first thing to run
+   once this phase's PR is open**: fire the workflow manually with
+   `update_snapshots: true` before expecting `pnpm exec playwright test` to
+   pass on a normal run.
+8. **Every env-var name this phase introduced into CI is a documented
+   assumption, not a verified fact**, flagged inline in `ci.yml` itself:
+   `supabase status -o env`'s default output keys (`API_URL`, `ANON_KEY`,
+   `SERVICE_ROLE_KEY`) come from Supabase CLI's own established convention,
+   not a fetch this sandbox could perform (`supabase status` itself needs
+   Docker) — confirmed only that `--override-name` exists and works via
+   `supabase status --help` (no live instance needed for `--help`). If the
+   first CI run shows these names are wrong, the fix is entirely inside the
+   two `Capture`/`Map` steps in `ci.yml`, nothing else.
+
 ## Stack rules
 
 ### TypeScript
@@ -941,7 +1063,20 @@ A change is done when **all** are true:
   it ran in this environment — the pre-installed Chromium build (`/opt/pw-browsers`, pinned
   build 1194) didn't match what the installed `@playwright/test` version expected (build 1228).
   Fixed by passing `executablePath: '/opt/pw-browsers/chromium'` explicitly instead of letting
-  Playwright resolve its own expected bundled browser.
+  Playwright resolve its own expected bundled browser. Phase 13's root `playwright.config.ts`
+  hit the exact same mismatch (this sandbox has `chromium`/`chromium-1194`/
+  `chromium_headless_shell-1194`, not whatever build the installed `@playwright/test` version
+  expects) — rather than hardcode this sandbox's path into a file every environment (including
+  CI, which installs its own exactly-matched browser via `playwright install --with-deps
+  chromium`) shares, `playwright.config.ts` reads an optional
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` env var and only overrides `launchOptions.executablePath`
+  when it's set. Verified end-to-end in this sandbox via
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium pnpm exec playwright test
+  e2e/visual.spec.ts --update-snapshots` against the two fixture-independent unauthenticated
+  routes (`/sign-up`, `/sign-in`) — real browser launch, real navigation, real screenshot
+  capture, and the axe-core accessibility scan all passed cleanly (zero WCAG violations) before
+  the generated snapshots were deleted again (committed baselines must come from CI's Linux
+  runner, never this sandbox, per TESTING.md).
 - Assumed an RLS-blocked cross-user `UPDATE` would raise an error; per Supabase's own security
   guidance (and confirmed while writing `supabase/tests/profiles_rls.test.sql`) it instead
   silently matches zero rows (`UPDATE` requires a `SELECT`-visible row first). Test for the row
@@ -1131,6 +1266,42 @@ A change is done when **all** are true:
   manual discipline — the tell for next time: when starting recon on a phase, diff
   `supabase/migrations/` against this file's own header comment (which lists every
   migration it claims to reflect) rather than assuming it's current.
+- **Root-level `.ts` files run as ESM (`package.json`'s `"type": "module"`), so
+  `__dirname`/`__filename` don't exist** — `playwright.config.ts` and every `e2e/*.ts` file
+  hit `ReferenceError: __dirname is not defined` the first time this repo had TypeScript
+  files living at the repo root instead of inside `app/`/`worker/` (Vite/Vitest's own
+  config already avoided this problem, since neither ever used `__dirname`). Fixed with
+  `path.dirname(fileURLToPath(import.meta.url))` everywhere a directory-relative path was
+  needed. Caught by `pnpm exec playwright test --list`, which parses every spec file
+  without needing a live browser or dev server — the tell for next time: run `--list`
+  as a free, zero-infrastructure sanity check on any new root-level `.ts`/`.mts` file
+  before assuming Node's classic CJS globals are available.
+- **`test.skip(condition, reason)` called inside a Playwright test body is too late to
+  prevent that test's own fixtures from being created** — `e2e/smoke.spec.ts`'s original
+  shape called `test.skip(!hasFixtures, ...)` as the first line inside `test('...', async
+  ({ browser }) => { ... })`, but Playwright resolves every fixture a test declares
+  (`browser` here) *before* invoking the test callback body at all, so the skip check
+  never got a chance to run before the browser launch attempt — which then failed for an
+  unrelated reason (this sandbox's Playwright browser-version mismatch, see the
+  `scripts/eyes.mjs` entry above) and looked like a real bug rather than a skip-timing
+  bug. `e2e/visual.spec.ts`'s brand/provider/admin route groups got this right from the
+  start by calling `test.skip()` at the `test.describe()` level (which Playwright *does*
+  evaluate before creating any fixtures for tests inside that block) — `smoke.spec.ts`
+  was fixed to wrap its single test in the same describe-level pattern. The tell for next
+  time: any conditional skip that depends on external state (a missing fixture file, a
+  missing env var) belongs at the `describe`/suite level, never inside a test callback
+  that declares fixtures needing real setup (`browser`, `page`, `context`).
+- **This repo's RLS/pgTAP tests had never executed against a live Postgres before Phase
+  13** — every prior phase's own CLAUDE.md write-up says "written, not yet executed"
+  and meant it literally; this sandbox has no Docker (see the network-limitation
+  landmine below), so nothing before this phase could actually run `supabase test db`.
+  One of the two real bugs the Phase 13 RLS audit found (`warehouses_rls.test.sql`
+  declaring `plan(20)` for 19 real assertions) would have failed on the very first
+  execution, silently sitting undetected for nine phases. The tell for next time: a
+  `grep -c` audit of `select plan(N)` vs. actual `select (is|throws_like|lives_ok)(`
+  call counts across every `supabase/tests/*.sql` file takes seconds and catches this
+  whole class of bug without needing a live database at all — worth running any time
+  a new RLS test file is added, not just during a dedicated hardening phase.
 
 ## Overrides
 
