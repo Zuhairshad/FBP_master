@@ -10,6 +10,16 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
+  // smoke.spec.ts and visual.spec.ts share the same global-setup-seeded
+  // brand/provider/order fixtures, and smoke.spec.ts actively mutates the
+  // seeded order's fulfillment_status/tracking_number. With >1 worker
+  // there's no ordering guarantee between spec files, so visual.spec.ts's
+  // /provider/orders screenshot can non-deterministically capture the order
+  // either before or after that mutation lands — caught via a real CI diff
+  // (5228 pixels, ratio 0.02) that a different worker-scheduling roll would
+  // have missed entirely. Force serial execution in CI so this shared,
+  // mutable fixture state can never race.
+  workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [['html', { open: 'never' }], ['github']] : 'list',
   outputDir: 'test-results',
   globalSetup: './e2e/global-setup.ts',

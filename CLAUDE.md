@@ -1070,6 +1070,51 @@ every RLS/pgTAP test being authored-but-unexecuted.
     background (pure white/canvas) before concluding a tint-opacity tweak
     can fix it — if the ceiling itself is below the threshold, only a
     darker (or lighter, in dark mode) base color closes the gap.
+19. **An eleventh bug — a real test-isolation race, surfaced only once every
+    prior finding was fixed and the suite ran far enough to reach it**: the
+    baseline-bootstrap run's *own* re-run (after GitHub's `action_required`
+    approval gate — see below) failed with a genuine pixel diff on
+    `/provider/orders` (5228 pixels, ratio 0.02, over the 0.01 threshold) —
+    not a missing-baseline error this time, an actual mismatch against the
+    just-committed baseline. Root cause: `smoke.spec.ts` and
+    `visual.spec.ts` share the exact same brand/provider/order fixtures
+    seeded once by `global-setup.ts`, and `smoke.spec.ts` actively mutates
+    the seeded order's `fulfillment_status`/`tracking_number` (its own
+    journey's last step) — the same order `visual.spec.ts`'s
+    `/provider/orders` scan reads read-only. `playwright.config.ts` had
+    `fullyParallel: true` with no `workers` override, so the CI runner
+    picked its own default (2, per the run's own "Running 28 tests using 2
+    workers" log line) — with no ordering guarantee between the two spec
+    files, whether the screenshot captures the order *before* or *after*
+    smoke's mutation is non-deterministic, and the just-generated baseline
+    happened to capture one ordering while this re-run's fresh worker
+    scheduling captured the other. Fixed by setting `workers:
+    process.env.CI ? 1 : undefined` — forces fully serial execution in CI,
+    the simplest correct fix for a suite with shared mutable fixture state
+    (the alternative — giving `visual.spec.ts` its own isolated order
+    fixture, or wrapping each spec file's state in a transaction — is a
+    real e2e-architecture improvement but out of scope for closing out this
+    phase; noted as a candidate for a future hardening pass). The tell for
+    next time, and the one this whole phase keeps re-teaching: a test suite
+    with fixtures shared and mutated across spec files is only as
+    deterministic as its execution ordering guarantees — `fullyParallel`
+    plus multiple workers assumes test *isolation*, and the moment two
+    spec files touch the same row, that assumption silently breaks in a
+    way no sandbox without a live multi-worker Playwright run could ever
+    catch.
+20. **A twelfth, non-bug wrinkle in the CI plumbing itself**: the
+    baseline-bootstrap job's own commit (authored as `github-actions[bot]`
+    via `git config user.name`/`user.email` in the "Generate + commit
+    visual baselines" step) triggered a new `pull_request` "synchronize"
+    check run that came back `action_required` instead of running —
+    GitHub's own safeguard against a bot-authored push auto-running a
+    workflow without a human in the loop, not anything this repo's
+    `ci.yml` did wrong. Resolved by manually re-triggering that specific
+    run (`rerun_workflow_run`) as a human collaborator, which bypasses the
+    gate. Not a recurring landmine to fix in code — future baseline
+    bootstrap runs on this branch will hit the same gate and need the same
+    manual re-run, which is an acceptable, infrequent cost for a path that
+    only exists to seed committed screenshots once.
 
 ## Stack rules
 
