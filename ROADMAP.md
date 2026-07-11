@@ -544,22 +544,30 @@ CLAUDE.md Landmines entry; resolve before this panel is used with real users.
 **Goal:** close whatever gaps accumulated across Phases 1–12 before calling this
 production-ready.
 
-**Blocked on (live verification):** everything below is authored and internally
-consistent, but this is the first phase to actually require Docker + a live Playwright
-browser run, neither available in this sandbox (see CLAUDE.md Landmines). The e2e/CI
-work needs one manual step before it goes fully green: fire `ci.yml` via
-`workflow_dispatch` with `update_snapshots: true` once, to generate `e2e/visual.spec.ts`'s
-Linux baseline screenshots (TESTING.md requires CI-generated baselines, never local
-ones) — see CLAUDE.md's Phase 13 write-up, point 7.
+**Blocked on (live verification):** this is the first phase to actually run against a
+live Postgres and a live Playwright browser, neither available in this sandbox (see
+CLAUDE.md Landmines) — everything below was authored and locally verified as much as
+possible, then genuinely proven out live for the first time in this PR's own CI. The
+first CI run found and this PR fixed a real, repo-wide bug (see the RLS-audit line
+below); the e2e/CI work still needs one manual step before it's fully green: fire
+`ci.yml` via `workflow_dispatch` with `update_snapshots: true` once, to generate
+`e2e/visual.spec.ts`'s Linux baseline screenshots (TESTING.md requires CI-generated
+baselines, never local ones) — see CLAUDE.md's Phase 13 write-up, point 7.
 
 - [x] Full RLS test audit — every table has anon/owner/other-tenant coverage. Found
-      and fixed two real bugs, not just missing coverage: `warehouses_rls.test.sql`'s
-      `warehouse_services`/`storage_spaces` cross-provider directory-read case was
-      vacuously true (no fixture row existed under provider B to actually test
-      against), and the same file's `plan(20)` didn't match its 19 real assertions —
-      a bare mismatch that would have failed at `finish()` the first time this suite
-      ever actually ran. A `grep -c` plan-vs-actual audit confirmed all 13 other RLS
-      test files were already accurate.
+      and fixed three real bugs, not just missing coverage. First (found locally, by
+      inspection): `warehouses_rls.test.sql`'s `warehouse_services`/`storage_spaces`
+      cross-provider directory-read case was vacuously true (no fixture row existed
+      under provider B to actually test against), and the same file's `plan(20)`
+      didn't match its 19 real assertions — a bare mismatch that would have failed at
+      `finish()` the first time this suite ever actually ran. A `grep -c`
+      plan-vs-actual audit confirmed all 13 other RLS test files were already
+      accurate. Second (found live, in this PR's own first CI run): every migration
+      since Phase 1 created RLS policies but never `GRANT`ed base table privileges to
+      `anon`/`authenticated` at all — a repo-wide gap invisible to local inspection,
+      since it only surfaces once pgTAP actually executes against a real Postgres.
+      Fixed by `20260711165411_grant_table_privileges.sql`; see CLAUDE.md's Phase 13
+      write-up, point 9.
 - [x] e2e `@smoke` covers auth, the core booking→order→fulfillment journey —
       `e2e/smoke.spec.ts`, using `e2e/global-setup.ts`'s real sign-up-driven
       brand/provider sessions plus service-role-seeded fixture data (warehouse,

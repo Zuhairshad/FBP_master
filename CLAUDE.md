@@ -837,6 +837,20 @@ every RLS/pgTAP test being authored-but-unexecuted.
    `supabase status --help` (no live instance needed for `--help`). If the
    first CI run shows these names are wrong, the fix is entirely inside the
    two `Capture`/`Map` steps in `ci.yml`, nothing else.
+9. **The first live `supabase test db` run surfaced a real, systemic gap
+   nine phases deep**: `20260711165411_grant_table_privileges.sql` grants
+   base `SELECT`/`INSERT`/`UPDATE`/`DELETE` on every table to `anon`/
+   `authenticated`, plus `ALTER DEFAULT PRIVILEGES` so this can't quietly
+   reopen table-by-table. Every migration since Phase 1 created RLS
+   policies but never `GRANT`ed table-level access at all — table grants and
+   RLS are two separate Postgres gates, and without the grant every pgTAP
+   query failed with "permission denied for table X" before RLS ever
+   evaluated, instead of the RLS-mediated "0 rows" / "row-level security
+   policy" errors every RLS test in this repo already asserts (Postgres's
+   own error HINT named the exact fix). Confirmed this doesn't weaken
+   anything: the `*_tokens`/`sync_logs` tables' zero-policy RLS still
+   returns zero rows to everyone regardless of the grant — a table grant is
+   a precondition for RLS to run, not an alternative to it.
 
 ## Stack rules
 
