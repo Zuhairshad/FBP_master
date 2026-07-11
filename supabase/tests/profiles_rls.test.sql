@@ -201,7 +201,7 @@ select is(
 );
 
 select throws_like(
-  $$ update public.profiles set role = 'provider' where id = '22222222-2222-2222-2222-222222222222' $$,
+  $$ update public.profiles set role = 'brand' where id = '22222222-2222-2222-2222-222222222222' $$,
   '%role cannot be changed%',
   'even an admin cannot change a profile''s role — prevent_role_change has no admin bypass'
 );

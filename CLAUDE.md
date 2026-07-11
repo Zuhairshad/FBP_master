@@ -851,6 +851,35 @@ every RLS/pgTAP test being authored-but-unexecuted.
    anything: the `*_tokens`/`sync_logs` tables' zero-policy RLS still
    returns zero rows to everyone regardless of the grant — a table grant is
    a precondition for RLS to run, not an alternative to it.
+10. **The same first live run also surfaced a genuine circular RLS bug from
+    Phase 3**: `select`/`insert`/`update`/`delete` on `inventory`
+    (`20260710133106_create_inventory.sql`) each check ownership via a live
+    subquery into `products`, while `products_select_via_approved_booking`
+    (added in that same migration) checks visibility via a live subquery
+    back into `inventory` — evaluating either table's RLS recurses into the
+    other's indefinitely ("infinite recursion detected in policy for
+    relation inventory/products"). Neither this sandbox nor any prior phase
+    could have caught this without an actual Postgres to run policies
+    against. Fixed by `20260711182031_fix_inventory_products_rls_recursion.sql`:
+    wraps the one edge that closes the cycle
+    (`products_select_via_approved_booking`'s inventory lookup) in a
+    `SECURITY DEFINER` function — such a function executes as its owner,
+    exempt from RLS by default (no table here uses `FORCE ROW LEVEL
+    SECURITY`), so its internal query into `inventory` never re-triggers
+    `inventory`'s policies. The predicate itself is byte-for-byte identical
+    (same joins/filters) — this changes *how* it's evaluated, not what's
+    visible to anyone.
+11. **One more bug, this time in Phase 12's own test, not the schema**:
+    `profiles_rls.test.sql`'s "even an admin cannot change a profile's
+    role" assertion set `role = 'provider'` on a fixture user whose role
+    was *already* `'provider'` — a same-value "change" that correctly never
+    trips `prevent_role_change`'s `new.role <> old.role` guard, so the test
+    asserted an exception that had no reason to fire. `prevent_role_change`
+    itself was never broken; the test target value just needed to be an
+    actually-different role (`'brand'`). The tell for next time: an
+    assertion like "X cannot change to value Y" is only a real test when Y
+    differs from the fixture's current value — this class of test bug is
+    invisible without live execution, same as the two findings above.
 
 ## Stack rules
 
