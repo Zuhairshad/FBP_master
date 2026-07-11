@@ -88,9 +88,21 @@ jobs:
       # is the first time this repo has run supabase start in CI, so these
       # exact names are UNVERIFIED until this workflow's own first green run.
       - name: Capture local Supabase connection info
-        run: supabase status -o env | tee /tmp/supabase-status.env >> "$GITHUB_ENV"
+        run: supabase status -o env > /tmp/supabase-status.env
       - name: Map Supabase env vars for the app dev server + e2e seeding
         run: |
+          # `supabase status -o env`'s output is shell-quoted
+          # (API_URL="http://..."). GITHUB_ENV's own file format does NOT do
+          # shell parsing — piping quoted output straight into it (as an
+          # earlier version of this step did) leaves the literal quote
+          # characters embedded in the env var's value, which then breaks
+          # any consumer expecting a bare URL string (confirmed: this exact
+          # bug produced "Invalid supabaseUrl: Must be a valid HTTP or HTTPS
+          # URL" in e2e/global-setup.ts's createClient() call). `source`-ing
+          # the file as real shell strips the quotes correctly first.
+          set -a
+          source /tmp/supabase-status.env
+          set +a
           echo "VITE_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
           echo "VITE_SUPABASE_PUBLISHABLE_KEY=$ANON_KEY" >> "$GITHUB_ENV"
           echo "VITE_WORKER_URL=http://localhost:8787" >> "$GITHUB_ENV"

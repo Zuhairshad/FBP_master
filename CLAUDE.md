@@ -880,6 +880,31 @@ every RLS/pgTAP test being authored-but-unexecuted.
     assertion like "X cannot change to value Y" is only a real test when Y
     differs from the fixture's current value — this class of test bug is
     invisible without live execution, same as the two findings above.
+12. **A fourth bug, this time in `ci.yml` itself, only surfaced once
+    `supabase test db` was passing and the pipeline reached the e2e step**:
+    `supabase status -o env`'s output is shell-quoted
+    (`API_URL="http://127.0.0.1:54321"`), but the original "Capture local
+    Supabase connection info" step piped that output directly into
+    `$GITHUB_ENV` (`supabase status -o env | tee /tmp/... >> "$GITHUB_ENV"`).
+    GitHub's `GITHUB_ENV` file format does **not** do shell parsing — it
+    takes everything after the first `=` as the literal value — so `API_URL`
+    ended up containing the literal quote characters as part of its value.
+    The next step's `echo "SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"` then
+    propagated those embedded quotes into `SUPABASE_URL`, producing
+    `e2e/global-setup.ts`'s `createClient(SUPABASE_URL, ...)` call failing
+    with "Invalid supabaseUrl: Must be a valid HTTP or HTTPS URL" — a string
+    that looked correct in the workflow's own env-dump log (GitHub's log
+    formatter always wraps env values in quotes for display, masking the
+    bug) but wasn't. Fixed by writing `supabase status -o env`'s output to a
+    plain file and `source`-ing it as real shell in the "Map" step (`set -a;
+    source /tmp/supabase-status.env; set +a`) before re-exporting individual
+    vars to `$GITHUB_ENV` — `source` parses the shell-quoted syntax
+    correctly and strips the quotes, so the values written onward are bare
+    strings. The tell for next time: never pipe a tool's shell-quoted
+    `KEY="value"`-style output directly into `$GITHUB_ENV` — always parse it
+    as shell first (`source`, or `eval`) since GITHUB_ENV's own format is a
+    flat `KEY=value` (or heredoc) convention with no quote-stripping of its
+    own.
 
 ## Stack rules
 
