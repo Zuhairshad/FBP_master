@@ -980,6 +980,37 @@ every RLS/pgTAP test being authored-but-unexecuted.
     fixing happened to surface — anon/authenticated failing first didn't
     mean service_role was fine, it just meant nothing had exercised it live
     yet.
+16. **An eighth bug, and the first real finding from the axe-core
+    accessibility pass actually running** (`e2e/smoke.spec.ts`'s scan of
+    `/brand/bookings`): `DashboardShell`'s sidebar nav-group labels
+    ("Catalog", "Fulfillment", "Marketplaces") used `text-ink-tertiary` on
+    `bg-surface-1` — in the light theme that's `#9195a0` on `#ffffff`, a
+    2.99:1 contrast ratio, failing WCAG 2 AA's 4.5:1 minimum for normal-size
+    text (`color-contrast`, `wcag2aa`/`wcag143`, impact: serious). This had
+    shipped since the Phase 9 shadcn/Radix rewrite introduced
+    `DashboardShell`'s nav groups — never caught before because this was the
+    first time `axe-core` ran against a real rendered page in this repo (see
+    finding 2 in this same section: this whole phase is the first live
+    execution of *any* of Phase 13's own new checks). Computed contrast
+    manually to pick the fix rather than guess: `text-ink-subtle`
+    (`#6b7078` light / `#8a8f98` dark) gives 4.98:1 (light) and 6.08:1
+    (dark) against `surface-1` in both themes — comfortably passing where
+    `ink-tertiary` gives 2.99:1 (light, the one axe caught) and 3.43:1
+    (dark, latent and technically also failing, just never exercised since
+    Playwright defaults to light rendering with no explicit `colorScheme`
+    set). Fixed by changing that one label's class from `text-ink-tertiary`
+    to `text-ink-subtle` in `DashboardShell.tsx` — no other element used
+    `ink-tertiary` for text content (`EmptyState`'s icon and `TextField`'s
+    placeholder also use it, but axe's `color-contrast` rule only evaluates
+    text nodes, not icons or placeholder pseudo-elements, so neither was
+    flagged and neither was touched). The tell for next time: a color-token
+    ladder with more steps than accessibility-safe options invites exactly
+    this mistake — `ink-tertiary` reads as "the next step down from
+    ink-subtle" in the token list, but nothing in `DESIGN.md` marks it as
+    unsafe for text-on-surface-1; any future use of the two dimmest ink
+    tokens for actual copy (not disabled/decorative use) should get its
+    contrast ratio checked against the specific background it sits on
+    before shipping, not assumed safe by token-ladder position.
 
 ## Stack rules
 
