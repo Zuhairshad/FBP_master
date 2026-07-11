@@ -64,7 +64,10 @@ describe('WalmartOrdersPage', () => {
         raw_data: { purchaseOrderId: '1111111111111' },
         resolved_master_sku: 'SKU-001',
         status: 'resolved',
+        fulfillment_status: 'pending',
+        tracking_number: null,
         created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
       },
       {
         id: 'o2',
@@ -74,7 +77,10 @@ describe('WalmartOrdersPage', () => {
         raw_data: { purchaseOrderId: '2222222222222' },
         resolved_master_sku: null,
         status: 'unmapped',
+        fulfillment_status: 'pending',
+        tracking_number: null,
         created_at: '2026-01-02T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
       },
     ]
     const builder = makeBuilder({ data: orders, error: null })
