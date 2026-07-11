@@ -1274,12 +1274,73 @@ every RLS/pgTAP test being authored-but-unexecuted.
   and `ensureAccessToken`-shape *patterns* travel between platforms; the modules that
   use them stay duplicated.
 
+## Branching & deployment model (Phase 14)
+
+**`master` = staging, `main` = production.** Feature branches PR into `master`
+(same as every phase so far); a **promotion PR from `master` into `main`**
+releases to production — `ci.yml`'s `ship-gate` runs on that PR exactly like
+any other, since its trigger is `pull_request` regardless of base branch.
+This replaces the ad-hoc "merge main up to date with master" commits earlier
+phases used (see git history around Phase 12/13) with something CI actually
+gates.
+
+**One shared Supabase project for both environments** — a client decision,
+not a technical default. The tradeoff, stated plainly: there is no database
+isolation between staging and production under this model. A migration,
+a bad RLS policy, or seeded test data landing on `master` is immediately live
+against the same rows real `main` users would see, since both environments'
+Workers hold the same `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`. Accepted
+for now to avoid provisioning/paying for a second Supabase project; revisit
+if real user data ever lands in this project — at that point "staging" stops
+meaning "isolated" and starts meaning "same DB, different Cloudflare
+deployment," which is a materially weaker safety net than the two-project
+option this repo turned down.
+
+**Cloudflare: two Worker deployments (`fbp-worker` prod / `fbp-worker-staging`
+staging, via `worker/wrangler.toml`'s `[env.staging]`), one Pages project
+(`fbp-app`, ASSUMPTION — any name works, this is just wrangler's
+`--project-name`) with two branch deployments** (`--branch=main` is the
+production deployment, `--branch=master` gets Cloudflare Pages' own stable
+branch-alias URL — this is Cloudflare's native "preview vs. production"
+branch behavior, not something this repo's CI has to construct). No custom
+domain yet — both environments run on Cloudflare's default `*.pages.dev`/
+`*.workers.dev` subdomains (client decision; revisit when a real domain is
+ready — ROADMAP.md's Phase 14 domain/SSL bullet is deferred, not skipped).
+
+**Deploy is CI-driven, not Cloudflare-dashboard-driven** — `deploy-staging`/
+`deploy-production` jobs in `ci.yml`, gated on `needs: ship-gate` and on
+`github.event_name == 'push'` to the matching branch, using
+`cloudflare/wrangler-action@v3` (verified against its own README — inputs
+`apiToken`/`accountId`/`command`/`workingDirectory`/`environment`, matching
+what `ci.yml` uses). Consistent with this repo's existing "dashboard-only
+changes are drift" rule for Supabase (see Stack rules → Supabase) — a
+Cloudflare Pages project connected directly to GitHub via its own dashboard
+integration would deploy outside version control and outside `ship-gate`'s
+gate, so this repo deploys via an explicit, readable CI step instead.
+
+**One-time, account-level setup this cannot do from a coding session** (needs
+whoever holds the Cloudflare account): create the Pages project, generate a
+scoped API token + account ID, add them as GitHub Environment secrets
+(`staging`/`production` environments — see below), and run `wrangler secret
+put` once per environment for every Worker secret in
+`worker/.dev.vars.example`. See ROADMAP.md's Phase 14 checklist for the exact
+steps; UNVERIFIED until that happens and a real push exercises these jobs.
+
 ## Environment & secrets
 
 - `app/.env.example` and `worker/.dev.vars.example` are the contracts — every required var
   listed there with a comment. Adding a var without updating the example breaks the next
   machine.
 - Never print secret values in logs, test output, or chat. Refer to them by name.
+- **CI/deploy secrets (Phase 14), GitHub Environment-scoped (`staging`/`production`,
+  Settings → Environments — not the repo-wide Secrets page, so staging and
+  production can hold different `WORKER_URL` values)**: `CLOUDFLARE_API_TOKEN`,
+  `CLOUDFLARE_ACCOUNT_ID` (same value in both environments — one Cloudflare
+  account), `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` (same value in both,
+  per the shared-project decision above), `WORKER_URL` (**different** per
+  environment — each environment's own deployed Worker URL, baked into the
+  Pages build as `VITE_WORKER_URL`). See `deploy-staging`/`deploy-production`
+  in `ci.yml`.
 - Required vars today:
   - `app/.env.local`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_WORKER_URL`
     (the Worker's own URL — `app/src/lib/worker.ts` calls it directly via `fetch` with the

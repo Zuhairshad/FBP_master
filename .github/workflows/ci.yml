@@ -4,8 +4,10 @@
 # this guards the repo — including 2am human commits made outside Claude Code.
 #
 # To make it BITE (one-time setup per repo):
-#   GitHub -> Settings -> Branches -> Add branch protection rule for `main`
-#   -> "Require status checks to pass" -> select `ship-gate`.
+#   GitHub -> Settings -> Branches -> Add a branch protection rule for BOTH
+#   `main` and `master` (Phase 14: master = staging, main = production, see
+#   CLAUDE.md's Branching & deployment model) -> "Require status checks to
+#   pass" -> select `ship-gate` on each.
 #   Without that click, this workflow is a report. With it, it is a wall.
 #
 # Package manager: written for pnpm. npm repo? Swap the two pnpm steps for
@@ -16,7 +18,12 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main]
+    # main = production, master = staging (see CLAUDE.md's Branching &
+    # deployment model). Both need their own push trigger — a merged PR's
+    # own pull_request-triggered run already gated the merge itself; this is
+    # what fires deploy-staging/deploy-production below against the
+    # resulting merge commit once it actually lands on the branch.
+    branches: [main, master]
   # Phase 13 bootstrap only: e2e/visual.spec.ts has no committed baselines
   # yet (TESTING.md: "Baselines: first run creates them... generate them on
   # the CI runner, not locally"). Trigger this manually once per branch that
@@ -179,3 +186,97 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+
+  # ---- Phase 14: deploy (branch-gated, only after ship-gate is green) ------
+  # master = staging, main = production — one shared Supabase project for
+  # both (see CLAUDE.md's Branching & deployment model for why, and the
+  # accepted risk that implies). Runs only on a real push to the branch
+  # (never on pull_request — a PR run must not deploy anything), and only
+  # once `ship-gate` itself has passed on that exact commit — a deploy step
+  # is exactly the kind of action TESTING.md's ladder exists to gate behind
+  # green, same reasoning as "red cannot commit/merge" extended one step
+  # further to "red cannot deploy."
+  #
+  # Needs two repo secrets (Settings -> Environments -> staging/production,
+  # or Settings -> Secrets -> Actions): CLOUDFLARE_API_TOKEN (Workers Scripts:Edit
+  # + Cloudflare Pages:Edit permissions) and CLOUDFLARE_ACCOUNT_ID. The
+  # Cloudflare Pages project itself (name below: fbp-app — ASSUMPTION, pick
+  # anything, this is just wrangler's --project-name) has to exist before the
+  # first deploy: `wrangler pages project create fbp-app --production-branch=main`,
+  # a one-time step run once by whoever holds the Cloudflare account, same as
+  # this repo's existing "secrets go through wrangler secret put, never in
+  # code" rule for the Worker's own per-marketplace secrets.
+  deploy-staging:
+    name: Deploy (staging — master)
+    needs: ship-gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build app (staging)
+        run: pnpm --filter app build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          VITE_WORKER_URL: ${{ secrets.WORKER_URL }}
+
+      - name: Deploy Pages (staging)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy app/dist --project-name=fbp-app --branch=master
+
+      - name: Deploy Worker (staging)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy
+          environment: staging
+
+  deploy-production:
+    name: Deploy (production — main)
+    needs: ship-gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build app (production)
+        run: pnpm --filter app build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          VITE_WORKER_URL: ${{ secrets.WORKER_URL }}
+
+      - name: Deploy Pages (production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy app/dist --project-name=fbp-app --branch=main
+
+      - name: Deploy Worker (production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy

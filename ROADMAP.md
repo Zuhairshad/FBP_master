@@ -592,15 +592,40 @@ baselines, never local ones) — see CLAUDE.md's Phase 13 write-up, point 7.
 
 ## Phase 14 — Deployment `[ ]`
 
-**Blocked on:** domain DNS pointed at wherever we host (client-owned decision —
-Cloudflare Pages makes this simpler than the original VPS/certbot setup: Cloudflare
-issues SSL automatically once DNS is proxied through it, no manual certbot dance).
+**Branching decided:** `master` = staging, `main` = production, one shared
+Supabase project for both (client decision — see CLAUDE.md's Branching &
+deployment model for the accepted risk this implies). CI-side wiring is done
+(`.github/workflows/ci.yml`'s `deploy-staging`/`deploy-production` jobs,
+`worker/wrangler.toml`'s `[env.staging]`); what's left is one-time,
+account-level setup only the Cloudflare account holder can do (below).
 
-- [ ] Cloudflare Pages deploy for `app/`, Workers deploy for `worker/`
+**Blocked on:** the one-time Cloudflare account provisioning — no custom
+domain needed yet (default `*.pages.dev`/`*.workers.dev` subdomains, client
+decision), so this is no longer blocked on DNS, just on:
+- [ ] Create the Cloudflare Pages project (`wrangler pages project create
+      fbp-app --production-branch=main`, or via the dashboard)
+- [ ] Generate a Cloudflare API token (Workers Scripts:Edit + Pages:Edit) and
+      the account ID; add both plus `SUPABASE_URL`/`SUPABASE_PUBLISHABLE_KEY`/
+      `WORKER_URL` as GitHub Environment secrets (`staging` and
+      `production` — see CLAUDE.md)
+- [ ] `wrangler secret put <NAME> --env staging` and again with no `--env`
+      for production, for every Worker secret in `worker/.dev.vars.example`
+      (staging and production Workers don't share secrets even though they
+      share a Supabase project)
+
+- [x] Cloudflare Pages deploy for `app/`, Workers deploy for `worker/` — CI jobs
+      written (`deploy-staging`/`deploy-production` in `ci.yml`), gated on
+      `ship-gate` passing and on which branch actually received the push;
+      UNVERIFIED until the account-level setup above happens and a real push
+      exercises them
 - [ ] Production secrets via `wrangler secret put` (never in `wrangler.toml`)
+      — mechanism exists, actual secret values are the one-time step above
 - [ ] Supabase: promote/point to production project, confirm RLS is on for every table
-      in prod (not just local)
-- [ ] Domain + SSL via Cloudflare once DNS is pointed
+      in prod (not just local) — **N/A under the shared-project decision**: there
+      is no separate production project to promote to; RLS is already
+      verified against the one real Postgres this repo has (Phase 13's CI)
+- [ ] Domain + SSL via Cloudflare once DNS is pointed — deferred, not blocking
+      (default subdomains for now, per client decision)
 - [ ] Basic monitoring: Worker error/latency visibility, Supabase logs reviewed
 
 ---
