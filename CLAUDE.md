@@ -920,6 +920,41 @@ every RLS/pgTAP test being authored-but-unexecuted.
     "Company name (optional)"), and this class of bug is invisible without
     a real browser actually resolving the locator, same as every other
     Phase 13 finding in this section.
+14. **A sixth bug — this one a real, previously-shipped production defect in
+    `AuthProvider.tsx`, not test infrastructure.** Once the label-locator fix
+    let `signUpViaUi` actually submit the sign-up form, the resulting
+    navigation to `/` bounced straight back to `/sign-in` instead of landing
+    on `/brand` — reproduced consistently, not flaky. Root cause:
+    `AuthProvider`'s `syncSession` awaited `fetchProfile(session.user.id)`
+    (a network round trip) before calling `setState` even once. During that
+    await, React state still held whatever `loading`/`session` values were
+    set by the *initial* (pre-signup, unauthenticated) `getSession()`
+    resolution — typically `loading: false, session: null`. `SignUpPage`
+    calls `navigate('/')` immediately after `supabase.auth.signUp()`
+    resolves, and `ProtectedRoute` reads `{ session, loading }` on that very
+    render — seeing the stale `loading: false` (not the true "an auth
+    transition is in progress" state) and `session: null`, it redirected to
+    `/sign-in` before the new session's profile fetch ever got a chance to
+    complete. This is a real race any user could hit on a slow connection,
+    not an e2e-only artifact — it just took a real browser driving a real
+    sign-up against a real (if local) Supabase instance to surface, since
+    jsdom/mocked-network component tests never model this network-timing
+    gap. Fixed in `app/src/hooks/AuthProvider.tsx`: `syncSession` now calls
+    `setState` **synchronously** with `{ ...prev, session, loading: true }`
+    the moment a non-null session arrives, before awaiting `fetchProfile` —
+    so any consumer reading state during the profile-fetch window sees
+    `loading: true`, never a stale `session: null`. Regression test:
+    `app/src/hooks/AuthProvider.test.tsx` (new file) mocks
+    `supabase.auth.onAuthStateChange`/`supabase.from` with a controllable
+    pending profile-fetch promise and asserts the exact invariant that
+    broke — confirmed red against the pre-fix code (session stayed `none`
+    throughout), green after. The tell for next time: any `useEffect` that
+    fires `setState` only after an `await` has a window, between the state
+    change that triggers the effect and the `setState` call, where
+    downstream consumers see **stale** state, not "no state yet" — if a
+    boolean like `loading` is meant to cover that whole window, it must be
+    set at the top of the async function, synchronously, not just at the
+    end.
 
 ## Stack rules
 

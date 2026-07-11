@@ -22,6 +22,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setState({ session: null, profile: null, loading: false })
         return
       }
+      // Set session + loading:true synchronously, before awaiting the
+      // profile fetch below. Without this, a route guard reading state
+      // during that await sees a stale loading:false/session:null (left
+      // over from the initial unauthenticated resolution) and redirects to
+      // /sign-in despite a session having just been established — a real
+      // race, not just a test artifact (caught via e2e/global-setup.ts
+      // driving a real sign-up through a real browser).
+      if (!cancelled) setState((prev) => ({ ...prev, session, loading: true }))
       const profile = await fetchProfile(session.user.id)
       if (!cancelled) setState({ session, profile, loading: false })
     }
