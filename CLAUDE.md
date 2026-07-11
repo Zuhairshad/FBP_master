@@ -955,6 +955,31 @@ every RLS/pgTAP test being authored-but-unexecuted.
     boolean like `loading` is meant to cover that whole window, it must be
     set at the top of the async function, synchronously, not just at the
     end.
+15. **A seventh bug — the same missing-GRANTs class as finding 9, but for a
+    third role that finding's own migration didn't cover.** Once
+    `signUpViaUi` worked, `e2e/global-setup.ts`'s service-role fixture
+    seeding hit "permission denied for table warehouses" using
+    `SUPABASE_SERVICE_ROLE_KEY`. `service_role` has the `BYPASSRLS`
+    attribute, which only skips RLS *policy* evaluation — it is not a
+    substitute for the base table-level `GRANT` a role needs before a query
+    is attempted at all, and `20260711165411_grant_table_privileges.sql`
+    only granted `anon`/`authenticated` (the two Data-API roles), never
+    `service_role`. This is a bigger deal than an e2e fixture failing: every
+    production write in `worker/` — marketplace tokens, `platform_orders`,
+    `sync_logs`, admin moderation — uses this exact role, so the same gap
+    was live in the real Worker code path, not just this test's fixture
+    seeding, and had been since Phase 5. pgTAP's own RLS tests never caught
+    it because their fixture inserts run as the `postgres` superuser, not
+    `service_role`. Fixed by a second migration,
+    `20260711211655_grant_service_role_table_privileges.sql` (kept separate
+    from the already-pushed anon/authenticated migration rather than
+    editing shared history) — same `GRANT`/`ALTER DEFAULT PRIVILEGES`
+    shape, targeting `service_role`. The tell for next time: a missing-GRANT
+    fix that enumerates specific roles needs to enumerate **every** role
+    that actually touches the table, not just the ones the failure you're
+    fixing happened to surface — anon/authenticated failing first didn't
+    mean service_role was fine, it just meant nothing had exercised it live
+    yet.
 
 ## Stack rules
 
