@@ -1031,6 +1031,45 @@ every RLS/pgTAP test being authored-but-unexecuted.
     locator to an element type/role the option can't also match, don't
     assume a plain text match is unique just because it reads that way in
     the rendered page.
+18. **A tenth bug, and a second real accessibility finding — this time from
+    the first `visual.spec.ts` route that actually renders a `success`-toned
+    `StatusBadge`** (`/brand/shopify/orders`, scanning an order row with a
+    resolved SKU): `text-success` on `bg-success/10` measured 3.89:1 in the
+    light theme, again failing WCAG 2 AA's 4.5:1 floor. Computed the ceiling
+    before picking a fix: light theme's `--color-success` (`#1a8a3a`) tops
+    out at only **4.43:1 against pure white** — below 4.5:1 even with zero
+    background tint — so no amount of adjusting the badge's `/10` opacity
+    could fix this while keeping the same text color; the token itself had
+    to get darker. Swept opacity from 20% down to 1% to confirm this (lower
+    opacity paradoxically *increases* contrast here, since text and tint
+    share the same base hue and converge toward each other as opacity
+    rises) — even at 1% the ceiling was 4.38:1, still short. Darkened
+    `--color-success` to `#177c34` (light theme only; dark theme's `#27a644`
+    already passed at 5.64:1 against its own tint) — the new color's own
+    10%-tint composite yields 4.62:1. While computing this, found the same
+    latent defect in `--color-error` (`#d13438`), unexercised only because
+    no `visual.spec.ts` route yet renders an `error`-toned badge (light
+    theme, 10%-tint composite: 4.26:1) — fixed proactively to `#c63135`
+    (10%-tint composite: 4.62:1) rather than waiting for a future CI run to
+    surface it separately, same as `ink-tertiary`'s dark-theme case in
+    finding 16. Both changes are CSS-variable-only (`app/src/index.css`'s
+    light `@media` block) — `grep` confirmed `text-success`/`bg-success` and
+    `text-error`/`bg-error` are used nowhere else in `app/src`, so neither
+    change has any other call site to consider. `DESIGN.md`'s color table
+    and Known Gaps section updated to match. **Separately noted, not
+    fixed**: `DESIGN.md`'s own `status-badge` component spec says a status
+    tint should "override text color only, never the pill's bg" — the
+    actual `StatusBadge.tsx` implementation uses `bg-{tone}/10` for
+    success/error, which is a pre-existing drift from that documented
+    pattern. Out of scope for this bug fix (changing the structural
+    bg-vs-text pattern is a design decision, not an accessibility
+    requirement — the darkened tokens already make the *current* pattern
+    compliant), but worth resolving as an explicit design-system cleanup
+    later. The tell for next time: when a color fails contrast against its
+    *tinted* background, check its contrast against the *lightest possible*
+    background (pure white/canvas) before concluding a tint-opacity tweak
+    can fix it — if the ceiling itself is below the threshold, only a
+    darker (or lighter, in dark mode) base color closes the gap.
 
 ## Stack rules
 
