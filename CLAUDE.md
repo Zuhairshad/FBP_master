@@ -905,6 +905,21 @@ every RLS/pgTAP test being authored-but-unexecuted.
     as shell first (`source`, or `eval`) since GITHUB_ENV's own format is a
     flat `KEY=value` (or heredoc) convention with no quote-stripping of its
     own.
+13. **A fifth bug, once the env-quoting fix let CI reach the real Playwright
+    browser for the first time**: `e2e/global-setup.ts`'s `signUpViaUi`
+    called `page.getByLabel('Name')` to fill `SignUpPage`'s display-name
+    field, but Playwright's `getByLabel` matches by substring by default —
+    "Name" is also a substring of the page's other field, labeled "Company
+    name (optional)" — so the locator resolved to 2 elements and Playwright
+    correctly refused to guess ("strict mode violation"). Fixed by passing
+    `{ exact: true }` to that one `getByLabel` call. The tell for next time:
+    any `getByLabel`/`getByText`/`getByRole({name})` call is a substring
+    match unless `exact: true` is passed — safe when the target string is
+    unique among all labels on the page, a latent bug the moment a second
+    label contains it as a substring (as happened here between "Name" and
+    "Company name (optional)"), and this class of bug is invisible without
+    a real browser actually resolving the locator, same as every other
+    Phase 13 finding in this section.
 
 ## Stack rules
 

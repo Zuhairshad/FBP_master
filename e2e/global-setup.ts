@@ -27,7 +27,9 @@ async function signUpViaUi(
 
   await page.goto(`${baseURL}/sign-up`)
   await page.getByRole('radio', { name: role === 'brand' ? 'Brand' : 'Fulfillment Provider' }).check()
-  await page.getByLabel('Name').fill(user.displayName)
+  // exact: true — Playwright's getByLabel does substring matching by
+  // default, and "Name" is also a substring of "Company name (optional)".
+  await page.getByLabel('Name', { exact: true }).fill(user.displayName)
   if (user.companyName) {
     await page.getByLabel('Company name (optional)').fill(user.companyName)
   }
