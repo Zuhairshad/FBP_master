@@ -48,8 +48,12 @@ refresh_token at all) — completing all three auth-model shapes this repo has
 encountered across five marketplaces. Phase 10 built on top of that: **Order Sync
 Automation** — every platform's manual-sync-only model gets a real `scheduled()` cron
 handler (`worker/src/scheduledSync.ts`) that syncs every connected brand on all five
-platforms on a timer, with a `sync_logs` row per platform per run. No real users, no
-real money.
+platforms on a timer, with a `sync_logs` row per platform per run. Phase 12 built on
+top of that (Phase 11 is being developed in parallel, on a different branch): an
+**Admin Panel** — admin-only RLS oversight of every brand/provider/booking/order/sync
+run, plus two moderation actions (booking cancel/reject, and account deactivation —
+the one action needing the Worker's service-role key, since RLS alone can't touch
+`auth.users`). No real users, no real money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
@@ -558,6 +562,95 @@ Worker exports a `scheduled()` handler, not just `fetch()`.
    regardless of whether a sync was triggered manually or by the cron, so nothing in
    `app/` needed to change.
 
+**Admin Panel (built, Phase 12):** admin oversight of brands/providers/bookings/orders/
+sync history, plus two moderation actions. Two ask-triggers were resolved with the
+client before writing any code (ROADMAP.md flagged the access-pattern question
+explicitly): **admin-only RLS policies** (not service-role-backed Worker endpoints) for
+every read and for the booking-cancel action, since none of this data is secret — matches
+the repo's existing "plain RLS CRUD unless it's genuinely privileged" architecture rule —
+and **account deactivation is the one deliberate exception**, needing the service-role key
+because Postgres RLS has no way to touch `auth.users` or invalidate a session.
+1. **Schema** (`20260711114156_create_admin_panel.sql`): `profiles.is_active` (a
+   *display* flag, not the enforcement mechanism — see point 3) plus a reusable
+   `public.is_admin()` helper (`SECURITY INVOKER` — deliberate, not an oversight: the
+   caller's own session already has read access to their own `profiles` row via
+   existing policies, so there's no need to bypass RLS just to check the caller's own
+   role). New admin-only policies: `profiles_update_admin` (is_active only — the
+   existing `prevent_role_change` trigger from Phase 1 already blocks role changes for
+   everyone, admin included, with no bypass added), `booking_requests_select_admin` +
+   `booking_requests_update_admin` (view/reject any booking — the existing
+   `protect_booking_request_updates` trigger still blocks reassigning parties, so this
+   grant is "change status only" for free), `platform_orders_select_admin` (view-only —
+   order-status mutation is Phase 11's job, deliberately out of scope here),
+   `sync_logs_select_admin` (the one exception to that table's zero-policy default,
+   which Phase 10's own write-up explicitly deferred to this phase). The `*_tokens`
+   tables (every marketplace's OAuth/refresh secrets) stay zero-policy regardless — an
+   admin never sees a raw token either way, same as every other role.
+2. **Closing a self-bypass gap**: `profiles_update_own` (owner-only, Phase 1) has no
+   column restriction, so without a second trigger a deactivated user could simply set
+   their own `is_active` back to `true` via that same permitted `UPDATE` — the new
+   `profiles_update_admin` policy only helps for *other* rows. Fixed by
+   `prevent_self_deactivation_bypass` (`BEFORE UPDATE`, same shape as
+   `prevent_role_change`): any change to `is_active` is rejected unless the acting
+   user's own role is `admin`.
+3. **Real lockout, not a cosmetic flag**: `profiles.is_active` alone doesn't stop a
+   deactivated user's still-valid session from doing anything — RLS on every other
+   table is unchanged. The actual enforcement is Supabase Auth's own ban mechanism
+   (`supabase.auth.admin.updateUserById(id, { ban_duration: '876000h' })`, confirmed
+   against the installed `@supabase/supabase-js@2.110.2` — `ban_duration` and this
+   exact "~100 years" idiom appear in the library's own JSDoc example), which needs the
+   service-role key and therefore a Worker endpoint. `deactivateUser`/`reactivateUser`
+   (`worker/src/admin/supabaseAdmin.ts`) call the ban API *and* mirror `is_active` onto
+   `profiles` in the same action, so the RLS-visible directory shows status without a
+   Worker round-trip for every read.
+4. **Worker service layer** (`worker/src/admin/`): `env.ts` (needs only
+   `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` — no new secret, same shape as Walmart's
+   Phase 9 env), `supabaseAdmin.ts` (`verifyAdminAccessToken` — resolves the caller's
+   user id via Supabase Auth *and* checks their `profiles.role === 'admin'`, since the
+   service-role client bypasses RLS entirely and there's no RLS backstop the way a
+   browser's own Supabase queries have; `deactivateUser`/`reactivateUser`),
+   `handlers.ts` (`handleDeactivate`/`handleReactivate`). Same `fetchImpl`-injection
+   testing convention as every prior platform — 11 new worker tests (285 total).
+5. **Routes**: `POST /admin/users/:id/deactivate`, `POST /admin/users/:id/reactivate` —
+   the first *dynamic-segment* routes in `worker/src/index.ts` (every prior route was a
+   fixed pathname); dispatched via a small regex
+   (`/^\/admin\/users\/([^/]+)\/(deactivate|reactivate)$/`) rather than adding a router
+   dependency for two routes.
+6. **RLS tests**: extended `profiles_rls.test.sql`, `booking_requests_rls.test.sql`,
+   `platform_orders_rls.test.sql`, and `sync_logs_rls.test.sql` with an admin-principal
+   fixture and both positive (admin sees/mutates everything in scope) and negative
+   (role stays immutable even for an admin; a non-admin can't self-reactivate)
+   coverage. **Landmine for the fixture itself**: there is no supported
+   application-level way to create an admin account in this schema — self-service
+   always forces the role down to `brand`, and `prevent_role_change` blocks a plain
+   `UPDATE` unconditionally, admin included. Every new admin fixture seeds by
+   temporarily disabling `profiles_role_immutable` for one `UPDATE`, matching the
+   `profiles` migration's own "seeded directly by an operator" language — this repo
+   still has no real operator-facing admin-provisioning tool, which is a gap, not a
+   design choice; flagged again below.
+7. **Frontend**: `AdminDashboardPage` rewritten from an empty shell to a real link
+   list (matching `BrandDashboardPage`/`ProviderDashboardPage`'s existing pattern);
+   new `UsersPage` (directory + Deactivate/Reactivate), `BookingsPage` (every booking,
+   Reject-only — no Approve, since assigning a booking to a provider isn't an admin
+   action), `OrdersPage` (read-only, every brand), `SyncLogsPage` (read-only, every
+   platform's run history). `DashboardShell`'s admin nav group grew from a single
+   "Overview" item to a real group (Users/Bookings/Orders/Sync history). `lib/worker.ts`
+   gained `deactivateUser`/`reactivateUser`.
+8. **`app/src/types/database.ts` gained two changes**: `profiles.is_active` (this
+   phase's own column), and a `sync_logs` table entry that was simply **missing** —
+   Phase 10 landed the real `sync_logs` table but its own session never updated this
+   hand-authored types file, so `SyncLogsPage` would have had no type to import.
+   Backfilled here rather than left for a future phase to trip over.
+9. **Retrofit blast radius from a new required column**: adding `profiles.is_active`
+   (non-nullable) to `Database['public']['Tables']['profiles']['Row']` broke 22 existing
+   `Profile`-typed object literals across 18 test files (every fixture built before this
+   phase). Not a design mistake — an accurate Row type for a `not null default true`
+   column has to require the field; the alternative (marking it optional in Row) would
+   silently lie about the schema. Fixed by adding `is_active: true` to every fixture.
+   Full list is in the Phase 12 commit; if a future phase adds another required
+   `profiles` column, expect the same fan-out and grep for `company_name:` (the
+   cheapest reliable marker of a `Profile` literal in this codebase) to find every site.
+
 ## Stack rules
 
 ### TypeScript
@@ -711,6 +804,9 @@ Worker exports a `scheduled()` handler, not just `fetch()`.
   - This completes every marketplace integration in this repo's initial scope
     (Shopify/TikTok/Amazon/eBay/Walmart, Phases 5-9). Future marketplace additions
     (if any) would extend this list the same way each phase above did.
+  - **Admin panel (Phase 12) needs no new var either** — `worker/src/admin/` reuses
+    `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` above to call Supabase Auth's admin API
+    (ban/unban) for account deactivation; see Phase 12 write-up.
 
 ## Definition of Done
 
@@ -939,6 +1035,37 @@ A change is done when **all** are true:
   like "separate" or "own folder," confirm the exact directory depth and
   scope intended before executing — a folder-structure change is cheap to
   redo once, expensive to redo twice.
+- **This repo still has no supported way to create an admin account** (discovered
+  writing Phase 12's RLS tests). Self-service signup always forces the requested role
+  down to `brand`/`provider` (Phase 1's `handle_new_user`), and `prevent_role_change`
+  blocks a plain `UPDATE` on `profiles.role` unconditionally — admin included, no
+  bypass. The only way this session found to seed an admin fixture was disabling
+  `profiles_role_immutable` for one `UPDATE` inside a test transaction. That's fine
+  for a pgTAP test's own transaction (rolled back at the end either way), but it is
+  **not** a real provisioning path — nothing in this repo lets an actual operator turn
+  a real signed-up user into an admin today. Revisit before Phase 12's admin panel is
+  used with real accounts; candidates: a one-off `SECURITY DEFINER` RPC callable only
+  via the Supabase dashboard's SQL editor (service-role context), or a documented
+  direct-SQL runbook step.
+- **Adding a new required (`not null`) column to an existing, widely-fixture'd table
+  is a foundation-level change, not a one-file edit** — adding `profiles.is_active`
+  (Phase 12) broke 22 `Profile`-typed object literals across 18 test files that
+  predated the column, since an accurate `Database['public']['Tables']['profiles']['Row']`
+  type has to require a `not null default true` field (marking it optional in `Row`
+  would misrepresent the schema — only `Insert`/`Update` get the `?`). The tell for
+  next time: after adding a required column to any table with existing fixtures, run
+  `tsc --noEmit` immediately and expect a real fan-out, not zero errors — don't assume
+  "it's just a migration" stays contained to the migration. `grep -rn "company_name:"`
+  (or the equivalent unique-enough field for another table) finds every literal fast.
+- **`app/src/types/database.ts` had silently drifted out of sync with a merged
+  migration** (discovered doing Phase 12 recon): Phase 10's `sync_logs` table landed
+  in `supabase/migrations/` from a different session, but that session never touched
+  this hand-authored types file, so `sync_logs` had no TypeScript type at all until
+  Phase 12 added one. Since this file can't be regenerated from a live DB in this
+  sandbox (see the network-limitation landmine below), it only stays accurate through
+  manual discipline — the tell for next time: when starting recon on a phase, diff
+  `supabase/migrations/` against this file's own header comment (which lists every
+  migration it claims to reflect) rather than assuming it's current.
 
 ## Overrides
 

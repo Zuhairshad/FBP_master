@@ -2,7 +2,11 @@
 // 20260710130555_create_warehouses.sql, 20260710130605_create_products.sql,
 // 20260710133050_extend_directory_visibility.sql (RLS-only, no shape change),
 // 20260710133104_create_booking_requests.sql, 20260710133106_create_inventory.sql,
-// 20260710135941_create_sku_mappings.sql, and 20260710161735_create_shopify_tables.sql.
+// 20260710135941_create_sku_mappings.sql, 20260710161735_create_shopify_tables.sql, and
+// 20260711114156_create_admin_panel.sql (profiles.is_active only — every other change in
+// that migration is RLS-only, no shape change), and 20260710221040_create_sync_logs.sql
+// (added here alongside Phase 12 since this file had never been updated for it — Phase 10
+// landed sync_logs but its own session didn't touch this hand-authored types file).
 // Regenerate with `pnpm db:types` once local/hosted Supabase is reachable —
 // this file only exists so the app can typecheck against the schema before that.
 
@@ -20,6 +24,7 @@ export interface Database {
           role: UserRole
           display_name: string
           company_name: string | null
+          is_active: boolean
           created_at: string
         }
         Insert: {
@@ -27,6 +32,7 @@ export interface Database {
           role: UserRole
           display_name: string
           company_name?: string | null
+          is_active?: boolean
           created_at?: string
         }
         Update: {
@@ -34,6 +40,7 @@ export interface Database {
           role?: UserRole
           display_name?: string
           company_name?: string | null
+          is_active?: boolean
           created_at?: string
         }
         Relationships: []
@@ -425,6 +432,36 @@ export interface Database {
           resolved_master_sku?: string | null
           status?: PlatformOrderStatus
           created_at?: string
+        }
+        Relationships: []
+      }
+      sync_logs: {
+        Row: {
+          id: string
+          platform: MarketplacePlatform
+          started_at: string
+          finished_at: string | null
+          success_count: number
+          failure_count: number
+          error_message: string | null
+        }
+        Insert: {
+          id?: string
+          platform: MarketplacePlatform
+          started_at?: string
+          finished_at?: string | null
+          success_count?: number
+          failure_count?: number
+          error_message?: string | null
+        }
+        Update: {
+          id?: string
+          platform?: MarketplacePlatform
+          started_at?: string
+          finished_at?: string | null
+          success_count?: number
+          failure_count?: number
+          error_message?: string | null
         }
         Relationships: []
       }

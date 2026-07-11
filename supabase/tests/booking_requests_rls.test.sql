@@ -4,11 +4,13 @@
 -- the roadmap's explicit negative case for this phase). Also covers the
 -- provider_id-derivation trigger, the brand-only insert role check, that
 -- only the provider can act on a request, and the immutability trigger
--- protecting brand_id/provider_id/storage_space_id after creation. Run
--- with: supabase test db
+-- protecting brand_id/provider_id/storage_space_id after creation. Phase 12
+-- adds admin oversight: sees every booking regardless of party, can act on
+-- any of them, but still cannot reassign parties/space (the existing
+-- immutability trigger has no admin bypass). Run with: supabase test db
 
 begin;
-select plan(14);
+select plan(17);
 
 create function pg_temp.try_update_booking_status(target_id uuid, new_status public.booking_status)
 returns int
@@ -223,6 +225,44 @@ select is(
   pg_temp.try_update_booking_status('99999999-0000-0000-0000-000000000001', 'rejected'),
   0,
   'provider B''s update against the A<->X booking silently matches zero rows under RLS'
+);
+
+reset role;
+
+-- admin: sees every booking, can act on any, still can't reassign parties --
+
+insert into auth.users (id, email, raw_user_meta_data)
+values (
+  '55555555-5555-5555-5555-555555555555',
+  'admin-a@example.com',
+  '{"role": "admin", "display_name": "Admin Alpha"}'::jsonb
+);
+
+alter table public.profiles disable trigger profiles_role_immutable;
+update public.profiles set role = 'admin' where id = '55555555-5555-5555-5555-555555555555';
+alter table public.profiles enable trigger profiles_role_immutable;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"55555555-5555-5555-5555-555555555555","role":"authenticated"}';
+
+select is(
+  (select count(*) from public.booking_requests)::int,
+  2,
+  'admin sees every booking, not just ones they''re a party to'
+);
+
+select is(
+  pg_temp.try_update_booking_status('99999999-0000-0000-0000-000000000001', 'rejected'),
+  1,
+  'admin can reject a booking even though they''re not a party to it'
+);
+
+select throws_like(
+  $$ update public.booking_requests
+     set storage_space_id = '11111111-2222-0000-0000-000000000002'
+     where id = '99999999-0000-0000-0000-000000000001' $$,
+  '%cannot be changed%',
+  'even an admin cannot reassign the storage space on an existing booking'
 );
 
 reset role;

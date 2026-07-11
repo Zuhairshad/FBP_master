@@ -4,10 +4,11 @@
 -- inventory_rls.test.sql. Unlike inventory, there is no insert/update/delete
 -- policy at all here (only the Worker's service-role key writes these rows),
 -- so this suite also proves an authenticated brand cannot insert one
--- directly. Run with: supabase test db
+-- directly. Phase 12 adds admin oversight: sees every order regardless of
+-- brand/booking. Run with: supabase test db
 
 begin;
-select plan(8);
+select plan(9);
 
 -- Fixtures: provider A (approved booking with brand X), provider B
 -- (uninvolved), brand X (owns an order), brand Y (owns a separate order,
@@ -171,6 +172,30 @@ select is(
   (select count(*) from public.platform_orders where id = 'bbbbbbbb-2222-0000-0000-000000000001')::int,
   0,
   'provider A still cannot see brand Y''s order — no booking connects them'
+);
+
+reset role;
+
+-- admin: sees every order regardless of brand or booking relationship ------
+
+insert into auth.users (id, email, raw_user_meta_data)
+values (
+  '55555555-5555-5555-5555-555555555555',
+  'admin-a@example.com',
+  '{"role": "admin", "display_name": "Admin Alpha"}'::jsonb
+);
+
+alter table public.profiles disable trigger profiles_role_immutable;
+update public.profiles set role = 'admin' where id = '55555555-5555-5555-5555-555555555555';
+alter table public.profiles enable trigger profiles_role_immutable;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"55555555-5555-5555-5555-555555555555","role":"authenticated"}';
+
+select is(
+  (select count(*) from public.platform_orders)::int,
+  2,
+  'admin sees every order across every brand, with no booking relationship required'
 );
 
 reset role;

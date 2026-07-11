@@ -124,3 +124,14 @@ export interface WalmartStatus {
 export function getWalmartStatus(accessToken: string): Promise<WalmartStatus> {
   return callWorker('/walmart/status', accessToken)
 }
+
+/** Admin-only (Phase 12). RLS alone can flip profiles.is_active, but only
+ * the Worker's service-role key can actually lock a session out via
+ * Supabase Auth's ban mechanism — see worker/src/admin/. */
+export function deactivateUser(accessToken: string, userId: string): Promise<{ deactivated: boolean }> {
+  return callWorker(`/admin/users/${userId}/deactivate`, accessToken, { method: 'POST' })
+}
+
+export function reactivateUser(accessToken: string, userId: string): Promise<{ deactivated: boolean }> {
+  return callWorker(`/admin/users/${userId}/reactivate`, accessToken, { method: 'POST' })
+}

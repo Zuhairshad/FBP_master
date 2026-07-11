@@ -62,6 +62,7 @@ function renderWithAuth() {
           role: 'brand',
           display_name: 'Brand One',
           company_name: null,
+          is_active: true,
           created_at: '2026-01-01T00:00:00Z',
         },
       }}
@@ -103,6 +104,7 @@ describe('BookingsPage', () => {
         role: 'provider',
         display_name: 'Provider One',
         company_name: 'Acme Fulfillment',
+        is_active: true,
         created_at: '2026-01-01T00:00:00Z',
       },
     ]
@@ -151,6 +153,7 @@ describe('BookingsPage', () => {
         role: 'provider',
         display_name: 'Provider One',
         company_name: null,
+        is_active: true,
         created_at: '2026-01-01T00:00:00Z',
       },
     ]

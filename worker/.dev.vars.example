@@ -45,3 +45,7 @@ EBAY_VERIFICATION_TOKEN=
 # grant uses only the brand-submitted client_id/client_secret pair stored in
 # walmart_tokens (entered via WalmartConnectPage) — see
 # worker/src/walmart/env.ts and the walmart_tokens migration's header comment.
+
+# Admin panel (Phase 12): no vars needed here either — worker/src/admin/
+# reuses SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY above to call Supabase
+# Auth's admin API (ban/unban) for account deactivation.

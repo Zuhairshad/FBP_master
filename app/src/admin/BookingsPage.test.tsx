@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router'
-import { ProviderBookingsPage } from './ProviderBookingsPage'
+import { BookingsPage } from './BookingsPage'
 import { AuthContext } from '../hooks/auth-context'
 import { supabase } from '../lib/supabase'
 import type { Database } from '../types/database'
@@ -21,9 +21,7 @@ type QueryResult = { data: unknown; error: unknown }
 interface MockQueryBuilder {
   select: (...args: unknown[]) => MockQueryBuilder
   order: (...args: unknown[]) => MockQueryBuilder
-  insert: (...args: unknown[]) => MockQueryBuilder
   update: (...args: unknown[]) => MockQueryBuilder
-  delete: (...args: unknown[]) => MockQueryBuilder
   eq: (...args: unknown[]) => MockQueryBuilder
   single: (...args: unknown[]) => MockQueryBuilder
   then: (resolve: (value: QueryResult) => void) => void
@@ -33,9 +31,7 @@ function makeBuilder(result: QueryResult): MockQueryBuilder {
   const builder = {} as MockQueryBuilder
   builder.select = vi.fn(() => builder)
   builder.order = vi.fn(() => builder)
-  builder.insert = vi.fn(() => builder)
   builder.update = vi.fn(() => builder)
-  builder.delete = vi.fn(() => builder)
   builder.eq = vi.fn(() => builder)
   builder.single = vi.fn(() => builder)
   builder.then = (resolve) => resolve(result)
@@ -68,6 +64,15 @@ const brand: Profile = {
   created_at: '2026-01-01T00:00:00Z',
 }
 
+const provider: Profile = {
+  id: 'provider-1',
+  role: 'provider',
+  display_name: 'Provider One',
+  company_name: null,
+  is_active: true,
+  created_at: '2026-01-01T00:00:00Z',
+}
+
 const space: StorageSpace = {
   id: 's1',
   warehouse_id: 'w1',
@@ -81,54 +86,54 @@ function renderWithAuth() {
   return render(
     <MemoryRouter>
       <AuthContext.Provider
-      value={{
-        session: null,
-        loading: false,
-        profile: {
-          id: 'provider-1',
-          role: 'provider',
-          display_name: 'Provider One',
-          company_name: null,
-          is_active: true,
-          created_at: '2026-01-01T00:00:00Z',
-        },
-      }}
-    >
-      <ProviderBookingsPage />
+        value={{
+          session: null,
+          loading: false,
+          profile: {
+            id: 'admin-1',
+            role: 'admin',
+            display_name: 'Admin One',
+            company_name: null,
+            is_active: true,
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        }}
+      >
+        <BookingsPage />
       </AuthContext.Provider>
     </MemoryRouter>,
   )
 }
 
-describe('ProviderBookingsPage', () => {
-  it('lists incoming booking requests with approve/reject actions', async () => {
+describe('admin BookingsPage', () => {
+  it('lists every booking across every brand/provider pair', async () => {
     mockFrom(
       { data: [booking], error: null },
-      { data: [brand], error: null },
+      { data: [brand, provider], error: null },
       { data: [space], error: null },
     )
 
     renderWithAuth()
 
-    expect(await screen.findByText('Widgets Co')).toBeInTheDocument()
-    expect(screen.getByText(/Pallet Rack A/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument()
+    expect(await screen.findByText(/Widgets Co/)).toBeInTheDocument()
+    expect(screen.getByText(/Provider One/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Reject' })).toBeInTheDocument()
   })
 
-  it('approves a pending booking request', async () => {
+  it('rejects a booking regardless of party', async () => {
     mockFrom(
       { data: [booking], error: null },
-      { data: [brand], error: null },
+      { data: [brand, provider], error: null },
       { data: [space], error: null },
     )
-    mockFrom({ data: { ...booking, status: 'approved' }, error: null })
+    mockFrom({ data: { ...booking, status: 'rejected' }, error: null })
 
     renderWithAuth()
 
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: 'Approve' }))
+    await user.click(await screen.findByRole('button', { name: 'Reject' }))
 
-    expect(await screen.findByText('approved')).toBeInTheDocument()
+    expect(await screen.findByText('rejected')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reject' })).not.toBeInTheDocument()
   })
 })

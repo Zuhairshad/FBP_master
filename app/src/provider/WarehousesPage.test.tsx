@@ -59,6 +59,7 @@ function renderWithAuth() {
           role: 'provider',
           display_name: 'Provider One',
           company_name: null,
+          is_active: true,
           created_at: '2026-01-01T00:00:00Z',
         },
       }}
