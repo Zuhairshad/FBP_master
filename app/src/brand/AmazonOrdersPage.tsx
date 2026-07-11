@@ -15,6 +15,10 @@ function statusTone(status: PlatformOrder['status']) {
   return 'neutral'
 }
 
+function fulfillmentTone(status: PlatformOrder['fulfillment_status']) {
+  return status === 'delivered' ? 'success' : 'neutral'
+}
+
 export function AmazonOrdersPage() {
   const [orders, setOrders] = useState<PlatformOrder[]>([])
   const [loading, setLoading] = useState(true)
@@ -62,10 +66,18 @@ export function AmazonOrdersPage() {
         <ul className="space-y-2">
           {orders.map((order) => (
             <ListRow key={order.id}>
-              <span className="text-ink-muted">
-                {order.platform} #{order.platform_order_id}
-              </span>
-              <StatusBadge tone={statusTone(order.status)}>{order.resolved_master_sku ?? order.status}</StatusBadge>
+              <div>
+                <span className="text-ink-muted">
+                  {order.platform} #{order.platform_order_id}
+                </span>
+                {order.tracking_number && (
+                  <p className="text-xs text-ink-subtle">Tracking: {order.tracking_number}</p>
+                )}
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                <StatusBadge tone={statusTone(order.status)}>{order.resolved_master_sku ?? order.status}</StatusBadge>
+                <StatusBadge tone={fulfillmentTone(order.fulfillment_status)}>{order.fulfillment_status}</StatusBadge>
+              </div>
             </ListRow>
           ))}
         </ul>
