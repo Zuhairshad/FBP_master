@@ -39,6 +39,10 @@ compatibility_flags = ["nodejs_compat"]
 # scheduled() handler (worker/src/scheduledSync.ts) reuses every existing
 # per-platform binding above to sync all connected brands on a timer instead
 # of only via each platform's manual "sync now" button.
+#
+# Phase 12 (Admin Panel) needs no new binding either — worker/src/admin/
+# only needs SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY (already present above)
+# to call Supabase Auth's admin API for account deactivation/reactivation.
 
 [triggers]
 # Every 15 minutes (ASSUMPTION: a reasonable default given no stated SLA on

@@ -12,9 +12,9 @@
 -- still cannot mutate it.
 
 begin;
-select plan(9);
--- Plan count unchanged: two assertions below were rewritten (directory read
--- now succeeds where it used to be denied) rather than added/removed.
+select plan(15);
+-- Phase 12 added 6 assertions (admin fixture sanity check + is_active
+-- moderation coverage) on top of the original 9.
 
 -- Helper: runs an UPDATE as whatever role is currently active and returns the
 -- affected row count. Needed because a blocked RLS UPDATE silently matches 0
@@ -29,6 +29,21 @@ declare
   affected int;
 begin
   update public.profiles set display_name = new_name where id = target_id;
+  get diagnostics affected = row_count;
+  return affected;
+end;
+$$;
+
+-- Same shape, for is_active — Phase 12's account-deactivation moderation
+-- action.
+create function pg_temp.try_update_is_active(target_id uuid, new_value boolean)
+returns int
+language plpgsql
+as $$
+declare
+  affected int;
+begin
+  update public.profiles set is_active = new_value where id = target_id;
   get diagnostics affected = row_count;
   return affected;
 end;
@@ -78,6 +93,30 @@ select is(
   'a self-service signup requesting "admin" is forced to "brand"'
 );
 
+-- Phase 12: seed a real admin fixture. There is no supported application-level
+-- path to do this (self-service always forces down to brand, and
+-- prevent_role_change blocks a plain UPDATE unconditionally, admin included —
+-- see CLAUDE.md's "admin is never self-service" note) — matching how the
+-- profiles migration's own header describes admin provisioning ("seeded
+-- directly by an operator"), this bypasses the trigger for the single seed
+-- UPDATE, same privilege level an operator would need anyway.
+insert into auth.users (id, email, raw_user_meta_data)
+values (
+  '55555555-5555-5555-5555-555555555555',
+  'admin-a@example.com',
+  '{"role": "admin", "display_name": "Admin Alpha"}'::jsonb
+);
+
+alter table public.profiles disable trigger profiles_role_immutable;
+update public.profiles set role = 'admin' where id = '55555555-5555-5555-5555-555555555555';
+alter table public.profiles enable trigger profiles_role_immutable;
+
+select is(
+  (select role from public.profiles where id = '55555555-5555-5555-5555-555555555555'),
+  'admin'::public.user_role,
+  'admin fixture seeded correctly (operator-only path, bypassing the self-service trigger)'
+);
+
 -- anon: no access -------------------------------------------------------
 
 set local role anon;
@@ -97,7 +136,7 @@ set local request.jwt.claims to '{"sub":"11111111-1111-1111-1111-111111111111","
 
 select is(
   (select count(*) from public.profiles)::int,
-  3,
+  4,
   'user A sees all profiles via the directory policy (own + others), not just their own'
 );
 
@@ -127,6 +166,44 @@ select is(
   pg_temp.try_update_display_name('22222222-2222-2222-2222-222222222222', 'hijacked'),
   0,
   'user A''s update against user B''s row silently matches zero rows under RLS'
+);
+
+-- Phase 12: is_active is admin-only, even for a user acting on their own row.
+select throws_like(
+  $$ update public.profiles set is_active = false where id = '11111111-1111-1111-1111-111111111111' $$,
+  '%is_active can only be changed by an admin%',
+  'user A cannot deactivate their own account — is_active is admin-only'
+);
+
+select is(
+  pg_temp.try_update_is_active('22222222-2222-2222-2222-222222222222', false),
+  0,
+  'user A''s attempt to deactivate user B silently matches zero rows — no row-level access to B''s row at all'
+);
+
+reset role;
+
+-- admin: can moderate any profile's is_active, but role stays immutable ----
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"55555555-5555-5555-5555-555555555555","role":"authenticated"}';
+
+select is(
+  pg_temp.try_update_is_active('22222222-2222-2222-2222-222222222222', false),
+  1,
+  'admin can deactivate user B''s account'
+);
+
+select is(
+  (select is_active from public.profiles where id = '22222222-2222-2222-2222-222222222222'),
+  false,
+  'user B''s profile reflects the deactivation'
+);
+
+select throws_like(
+  $$ update public.profiles set role = 'provider' where id = '22222222-2222-2222-2222-222222222222' $$,
+  '%role cannot be changed%',
+  'even an admin cannot change a profile''s role — prevent_role_change has no admin bypass'
 );
 
 reset role;

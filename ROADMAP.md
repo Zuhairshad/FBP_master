@@ -505,16 +505,37 @@ sees status changes reflected back.
 
 ---
 
-## Phase 12 — Admin Panel `[ ]`
+## Phase 12 — Admin Panel `[~]`
 
 **Goal:** admin oversight — view all brands/providers/orders, basic moderation.
 
-- [ ] Decide access pattern: admin-only RLS policies vs. service-role-backed Worker
+**Blocked on (live testing):** no live Supabase reachable from this sandbox (see
+CLAUDE.md Landmines) — RLS policies and pgTAP tests are authored and internally
+consistent but UNVERIFIED against a real Postgres. Also: this repo still has no
+supported way to create a real admin account outside a test fixture — see the new
+CLAUDE.md Landmines entry; resolve before this panel is used with real users.
+
+- [x] Decide access pattern: admin-only RLS policies vs. service-role-backed Worker
       endpoints for admin reads (**ask-trigger — this is an authz-model decision,
-      surface it before building**)
-- [ ] Admin UI: user list, booking oversight, order oversight
-- [ ] RLS/authz tests proving non-admin roles are refused on every admin endpoint
-- [ ] Floor + tests + build; Eyes
+      surface it before building**) — resolved with the client: admin-only RLS for
+      every read and for the booking-cancel action (nothing here is secret); the one
+      deliberate exception is account deactivation, which needs the service-role key
+      because RLS can't touch `auth.users` or invalidate a session — see CLAUDE.md's
+      Phase 12 write-up.
+- [x] Admin UI: user list, booking oversight, order oversight — plus sync-history
+      oversight (`sync_logs`, deferred to this exact phase by Phase 10's own
+      write-up) and one moderation action beyond view-only: account
+      deactivation/reactivation (real lockout via Supabase Auth's ban mechanism, not
+      just a cosmetic flag) and booking cancel/reject (RLS-authorized, any booking).
+- [x] RLS/authz tests proving non-admin roles are refused on every admin endpoint —
+      extended `profiles_rls.test.sql`, `booking_requests_rls.test.sql`,
+      `platform_orders_rls.test.sql`, `sync_logs_rls.test.sql` with admin-principal
+      positive + negative coverage.
+- [x] Floor + tests + build; Eyes — full suite green (app: 26 files/55 tests, worker:
+      27 files/285 tests), both builds green, Eyes screenshots of all five admin
+      routes (desktop + mobile) reviewed — chrome/nav/responsive layout correct;
+      data-dependent panels show their loading state since this sandbox can't reach
+      the live Supabase project (same limitation as every RLS test in this phase).
 
 ---
 

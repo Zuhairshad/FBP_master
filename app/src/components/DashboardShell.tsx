@@ -15,6 +15,8 @@ import {
   Gavel,
   Wallet,
   Shield,
+  Users,
+  History,
   Menu,
   ChevronsUpDown,
   LogOut,
@@ -97,7 +99,17 @@ function navGroupsForRole(role: Profile['role']): NavGroup[] {
         },
       ]
     case 'admin':
-      return [{ items: [{ label: 'Overview', to: '/admin', icon: Shield, end: true }] }]
+      return [
+        {
+          items: [
+            { label: 'Overview', to: '/admin', icon: Shield, end: true },
+            { label: 'Users', to: '/admin/users', icon: Users },
+            { label: 'Bookings', to: '/admin/bookings', icon: ClipboardList },
+            { label: 'Orders', to: '/admin/orders', icon: ShoppingCart },
+            { label: 'Sync history', to: '/admin/sync-logs', icon: History },
+          ],
+        },
+      ]
   }
 }
 

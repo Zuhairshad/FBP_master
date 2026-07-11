@@ -1,11 +1,12 @@
 -- RLS policy tests for public.sync_logs. Same zero-policy shape as every
--- `*_tokens` table (see e.g. amazon_tokens_rls.test.sql): RLS is enabled but
--- no policy exists for any operation, so anon AND authenticated get denied
--- on everything. Only the service-role key (the Worker's scheduled sync
--- handler) can touch this table. Run with: supabase test db
+-- `*_tokens` table (see e.g. amazon_tokens_rls.test.sql) for anon/ordinary
+-- authenticated users — no policy exists for any operation, so both get
+-- denied on everything; only the service-role key (the Worker's scheduled
+-- sync handler) can write this table. Phase 12 adds the one exception: an
+-- admin can read (not write) sync history. Run with: supabase test db
 
 begin;
-select plan(4);
+select plan(5);
 
 create function pg_temp.try_update_sync_log(target_id uuid)
 returns int
@@ -68,6 +69,30 @@ select is(
   pg_temp.try_update_sync_log('aaaaaaaa-4444-0000-0000-000000000001'),
   0,
   'an authenticated user''s update against a sync_logs row silently matches zero rows — no update policy exists'
+);
+
+reset role;
+
+-- admin: read-only oversight of sync history -------------------------------
+
+insert into auth.users (id, email, raw_user_meta_data)
+values (
+  '55555555-5555-5555-5555-555555555555',
+  'admin-a@example.com',
+  '{"role": "admin", "display_name": "Admin Alpha"}'::jsonb
+);
+
+alter table public.profiles disable trigger profiles_role_immutable;
+update public.profiles set role = 'admin' where id = '55555555-5555-5555-5555-555555555555';
+alter table public.profiles enable trigger profiles_role_immutable;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"55555555-5555-5555-5555-555555555555","role":"authenticated"}';
+
+select is(
+  (select count(*) from public.sync_logs)::int,
+  1,
+  'admin can read sync_logs — the one exception to the zero-policy default'
 );
 
 reset role;

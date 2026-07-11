@@ -49,6 +49,7 @@ function renderWithAuth() {
             role: 'provider',
             display_name: 'Provider One',
             company_name: null,
+            is_active: true,
             created_at: '2026-01-01T00:00:00Z',
           },
         }}
@@ -78,6 +79,7 @@ const baseBrand: Profile = {
   role: 'brand',
   display_name: 'Brand One',
   company_name: 'Brand One Co',
+  is_active: true,
   created_at: '2026-01-01T00:00:00Z',
 }
 

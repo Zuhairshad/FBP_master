@@ -26,6 +26,10 @@ import { EbayOrdersPage } from './brand/EbayOrdersPage'
 import { WalmartConnectPage } from './brand/WalmartConnectPage'
 import { WalmartOrdersPage } from './brand/WalmartOrdersPage'
 import { ProviderOrdersPage } from './provider/ProviderOrdersPage'
+import { UsersPage } from './admin/UsersPage'
+import { BookingsPage as AdminBookingsPage } from './admin/BookingsPage'
+import { OrdersPage as AdminOrdersPage } from './admin/OrdersPage'
+import { SyncLogsPage } from './admin/SyncLogsPage'
 
 function App() {
   return (
@@ -66,6 +70,10 @@ function App() {
 
             <Route element={<RequireRole role="admin" />}>
               <Route path="/admin" element={<AdminDashboardPage />} />
+              <Route path="/admin/users" element={<UsersPage />} />
+              <Route path="/admin/bookings" element={<AdminBookingsPage />} />
+              <Route path="/admin/orders" element={<AdminOrdersPage />} />
+              <Route path="/admin/sync-logs" element={<SyncLogsPage />} />
             </Route>
           </Route>
         </Routes>
