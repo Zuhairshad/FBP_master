@@ -2,11 +2,13 @@
 // 20260710130555_create_warehouses.sql, 20260710130605_create_products.sql,
 // 20260710133050_extend_directory_visibility.sql (RLS-only, no shape change),
 // 20260710133104_create_booking_requests.sql, 20260710133106_create_inventory.sql,
-// 20260710135941_create_sku_mappings.sql, 20260710161735_create_shopify_tables.sql, and
-// 20260711114156_create_admin_panel.sql (profiles.is_active only — every other change in
-// that migration is RLS-only, no shape change), and 20260710221040_create_sync_logs.sql
-// (added here alongside Phase 12 since this file had never been updated for it — Phase 10
-// landed sync_logs but its own session didn't touch this hand-authored types file).
+// 20260710135941_create_sku_mappings.sql, 20260710161735_create_shopify_tables.sql,
+// 20260711120000_add_fulfillment_to_platform_orders.sql (Phase 11), and
+// 20260711114156_create_admin_panel.sql (Phase 12 — profiles.is_active only, every
+// other change in that migration is RLS-only, no shape change). Also backfills
+// 20260710221040_create_sync_logs.sql's table, added here alongside Phase 12 since
+// this file had never been updated for it — Phase 10 landed sync_logs but its own
+// session didn't touch this hand-authored types file.
 // Regenerate with `pnpm db:types` once local/hosted Supabase is reachable —
 // this file only exists so the app can typecheck against the schema before that.
 
@@ -14,6 +16,7 @@ export type UserRole = 'brand' | 'provider' | 'admin'
 export type BookingStatus = 'pending' | 'approved' | 'rejected'
 export type MarketplacePlatform = 'amazon' | 'tiktok' | 'ebay' | 'walmart' | 'shopify'
 export type PlatformOrderStatus = 'pending' | 'resolved' | 'unmapped'
+export type OrderFulfillmentStatus = 'pending' | 'processing' | 'shipped' | 'delivered'
 
 export interface Database {
   public: {
@@ -411,7 +414,10 @@ export interface Database {
           raw_data: unknown
           resolved_master_sku: string | null
           status: PlatformOrderStatus
+          fulfillment_status: OrderFulfillmentStatus
+          tracking_number: string | null
           created_at: string
+          updated_at: string
         }
         Insert: {
           id?: string
@@ -421,7 +427,10 @@ export interface Database {
           raw_data: unknown
           resolved_master_sku?: string | null
           status?: PlatformOrderStatus
+          fulfillment_status?: OrderFulfillmentStatus
+          tracking_number?: string | null
           created_at?: string
+          updated_at?: string
         }
         Update: {
           id?: string
@@ -431,7 +440,10 @@ export interface Database {
           raw_data?: unknown
           resolved_master_sku?: string | null
           status?: PlatformOrderStatus
+          fulfillment_status?: OrderFulfillmentStatus
+          tracking_number?: string | null
           created_at?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -473,6 +485,7 @@ export interface Database {
       booking_status: BookingStatus
       marketplace_platform: MarketplacePlatform
       platform_order_status: PlatformOrderStatus
+      order_fulfillment_status: OrderFulfillmentStatus
     }
     CompositeTypes: Record<string, never>
   }

@@ -47,7 +47,10 @@ const shopifyOrder: PlatformOrder = {
   raw_data: {},
   resolved_master_sku: 'SKU-001',
   status: 'resolved',
+  fulfillment_status: 'pending',
+  tracking_number: null,
   created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
 }
 
 const walmartOrder: PlatformOrder = {
@@ -58,7 +61,10 @@ const walmartOrder: PlatformOrder = {
   raw_data: {},
   resolved_master_sku: null,
   status: 'unmapped',
+  fulfillment_status: 'pending',
+  tracking_number: null,
   created_at: '2026-01-02T00:00:00Z',
+  updated_at: '2026-01-02T00:00:00Z',
 }
 
 const brand1: Profile = {

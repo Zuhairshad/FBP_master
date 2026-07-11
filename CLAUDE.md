@@ -48,12 +48,16 @@ refresh_token at all) — completing all three auth-model shapes this repo has
 encountered across five marketplaces. Phase 10 built on top of that: **Order Sync
 Automation** — every platform's manual-sync-only model gets a real `scheduled()` cron
 handler (`worker/src/scheduledSync.ts`) that syncs every connected brand on all five
-platforms on a timer, with a `sync_logs` row per platform per run. Phase 12 built on
-top of that (Phase 11 is being developed in parallel, on a different branch): an
-**Admin Panel** — admin-only RLS oversight of every brand/provider/booking/order/sync
-run, plus two moderation actions (booking cancel/reject, and account deactivation —
-the one action needing the Worker's service-role key, since RLS alone can't touch
-`auth.users`). No real users, no real money.
+platforms on a timer, with a `sync_logs` row per platform per run. Phase 11 built on
+top of that: **Provider Fulfillment Dashboard** — a provider now picks/packs/ships an
+order (`fulfillment_status` + `tracking_number` on `platform_orders`, mutable only by
+a provider with an approved booking to that order's brand) and a brand sees the
+status reflected back read-only. Phase 12 built on top of Phase 10 in parallel with
+Phase 11 (developed on a different branch, merged second): an **Admin Panel** —
+admin-only RLS oversight of every brand/provider/booking/order/sync run, plus two
+moderation actions (booking cancel/reject, and account deactivation — the one action
+needing the Worker's service-role key, since RLS alone can't touch `auth.users`). No
+real users, no real money.
 
 ## Commands (verified — if one fails, fix the script or this doc, never work around silently)
 
@@ -561,6 +565,67 @@ Worker exports a `scheduled()` handler, not just `fetch()`.
    existing Connect/Orders page already reflects `last_synced_at`/order rows
    regardless of whether a sync was triggered manually or by the cron, so nothing in
    `app/` needed to change.
+
+**Provider Fulfillment Dashboard (built, Phase 11):** a provider picks/packs/ships an
+order and updates status + tracking; the brand sees it reflected back, read-only.
+1. **Schema** (`20260711120000_add_fulfillment_to_platform_orders.sql`): adds
+   `fulfillment_status` (new enum `order_fulfillment_status`:
+   `pending`/`processing`/`shipped`/`delivered`, default `pending`), `tracking_number`
+   (nullable text), and `updated_at` to `platform_orders`. This is layered on top of,
+   not a repurposing of, the existing `status` column — that column is Phase 4/5's
+   SKU-resolution outcome (`pending`/`resolved`/`unmapped`), a completely different
+   axis; its own header comment already flagged fulfillment as "Phase 11's job."
+2. **RLS — deliberately no new "assigned provider" column.** `platform_orders` had
+   zero insert/update/delete policies before this phase (Worker/service-role only,
+   see Phase 5's write-up); Phase 11 adds exactly one UPDATE policy
+   (`platform_orders_update_fulfillment`), scoped to **the same predicate** as the
+   existing `platform_orders_select_via_approved_booking` SELECT policy — a provider
+   with an approved `booking_requests` row connecting them to the order's brand.
+   **ASSUMPTION:** ROADMAP.md's "restricted to the fulfilling provider only" is read
+   as "restricted to a provider who can already see this order" (i.e. the same set
+   the SELECT policy already grants), not as a new per-order provider-assignment/
+   claim concept — nothing elsewhere in this repo's data model designates one single
+   provider as "the" fulfiller of a given order (a brand's approved bookings can span
+   multiple providers/warehouses), and ROADMAP's own checklist for this phase lists
+   only "`order_status` enum + tracking fields," not a new assignment column. A
+   provider without an approved booking to that brand gets zero rows affected on
+   update, same "silently matches zero rows under RLS" behavior documented in the
+   Landmines section for `booking_requests`. Brand gets no update policy at all —
+   read-only, per ROADMAP's explicit ask.
+3. **Protect-trigger, same shape as Phase 3's `protect_booking_request_updates`:**
+   `protect_platform_order_fulfillment_updates` (`BEFORE UPDATE`) raises if anything
+   other than `fulfillment_status`/`tracking_number` changes — otherwise a provider
+   permitted to update the row at all could also rewrite `brand_id`, `raw_data`, the
+   SKU-resolution `status`, etc. via that same UPDATE grant. Bumps `updated_at`.
+4. **Frontend:** `ProviderOrdersPage` (`app/src/provider/`) gained a per-order
+   fulfillment-status `SelectField` + tracking-number `TextField` + "Save" button
+   (disabled until the draft actually differs from the persisted row), calling
+   `supabase.from('platform_orders').update(...)` directly — no Worker involvement,
+   plain RLS-authorized mutation like every brand/provider CRUD page in this repo.
+   All five brand-facing order pages (`ShopifyOrdersPage`/`TiktokOrdersPage`/
+   `AmazonOrdersPage`/`EbayOrdersPage`/`WalmartOrdersPage`) gained a second,
+   read-only `StatusBadge` for `fulfillment_status` plus a tracking-number line —
+   read-only per ROADMAP's ask, no update affordance on the brand side at all.
+5. **`app/src/types/database.ts`** (hand-authored interim types, see its own header
+   comment) updated to match: new `OrderFulfillmentStatus` type, new
+   `fulfillment_status`/`tracking_number`/`updated_at` fields on `platform_orders`'
+   Row/Insert/Update shapes, new `order_fulfillment_status` Enums entry. Still
+   UNVERIFIED against a real generated schema — same standing sandbox limitation as
+   every prior phase (no live Postgres reachable here, see Landmines).
+6. **Tests:** `supabase/tests/platform_orders_fulfillment_rls.test.sql` (8 pgTAP
+   assertions — brand cannot update at all; uninvolved provider cannot mutate;
+   approved-booking provider can update fulfillment_status and tracking_number, both
+   persisted; the protect-trigger blocks smuggling a `status`/`brand_id` change
+   through the same UPDATE). `ProviderOrdersPage.test.tsx` gained a test driving the
+   full select-status → type-tracking-number → click-Save flow and asserting the
+   exact `update()` payload. All five brand order-page test files updated for the two
+   new required Row fields.
+7. **No Eyes/visual verification possible in this sandbox.** `ProviderOrdersPage` and
+   the five brand order pages are all auth-gated routes; signing in requires a real
+   Supabase Auth backend, and this sandbox cannot reach one (see the standing "no
+   live DB reachable" Landmines entry) — so the new fulfillment UI is
+   typecheck/lint/unit-test verified only, not screenshot-verified. Flagged
+   UNVERIFIED rather than skipped silently.
 
 **Admin Panel (built, Phase 12):** admin oversight of brands/providers/bookings/orders/
 sync history, plus two moderation actions. Two ask-triggers were resolved with the

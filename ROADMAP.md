@@ -482,18 +482,26 @@ connected platforms.
 
 ---
 
-## Phase 11 — Provider Fulfillment Dashboard `[ ]`
+## Phase 11 — Provider Fulfillment Dashboard `[~]`
 
 **Goal:** provider picks/packs/ships an order and updates status + tracking; brand
 sees status changes reflected back.
 
-- [ ] `order_status` enum + tracking fields on `platform_orders` (or a child table)
-- [ ] Provider UI: status transitions, tracking number entry
-- [ ] Brand UI: read-only status/tracking view
-- [ ] RLS: status mutation restricted to the fulfilling provider only
-- [ ] Integration tests for status transitions; RLS negative test (other provider
-      cannot mutate)
-- [ ] Floor + integration tests + build; Eyes
+- [x] `order_status` enum + tracking fields on `platform_orders` (or a child table) —
+      `order_fulfillment_status` enum + `tracking_number`/`updated_at` columns,
+      layered on top of the existing SKU-resolution `status` column, not reusing it
+- [x] Provider UI: status transitions, tracking number entry — `ProviderOrdersPage`
+- [x] Brand UI: read-only status/tracking view — all five platform order pages
+- [x] RLS: status mutation restricted to the fulfilling provider only — scoped to the
+      same approved-booking predicate as the existing SELECT policy (see CLAUDE.md's
+      Phase 11 write-up for the ASSUMPTION on why no new provider-assignment column
+      was introduced)
+- [x] Integration tests for status transitions; RLS negative test (other provider
+      cannot mutate) — `platform_orders_fulfillment_rls.test.sql`, unexecuted against
+      a live Postgres per this sandbox's standing network limitation (see Landmines)
+- [x] Floor + integration tests + build; Eyes — Eyes not run: every touched page is
+      auth-gated and this sandbox cannot reach a live Supabase Auth backend to sign
+      in (see CLAUDE.md's Phase 11 write-up, point 7)
 
 ---
 
