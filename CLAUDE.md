@@ -1101,7 +1101,22 @@ every RLS/pgTAP test being authored-but-unexecuted.
     plus multiple workers assumes test *isolation*, and the moment two
     spec files touch the same row, that assumption silently breaks in a
     way no sandbox without a live multi-worker Playwright run could ever
-    catch.
+    catch. **Follow-up:** `workers: 1` alone wasn't the full fix — the very
+    next run confirmed serial execution ("Running 28 tests using 1 worker")
+    and produced the *identical* 5228-pixel diff, because the already-
+    committed baseline for `/provider/orders` was itself captured by the
+    pre-fix, nondeterministically-scheduled run (whichever ordering that
+    happened to land in). Serial execution is now deterministic — every
+    future run captures the *same* (post-`smoke.spec.ts`-mutation) state —
+    but the stale baseline still reflected the old, differently-ordered
+    capture. Re-ran the `workflow_dispatch` bootstrap once more on top of
+    the `workers: 1` fix to regenerate that one baseline against the now-
+    stable ordering; this should be the last regeneration needed, since
+    ordering no longer varies run to run. The tell for next time: fixing a
+    scheduling race makes *future* runs deterministic, but doesn't
+    retroactively fix a baseline/fixture/cache that was captured *before*
+    the fix landed — anything snapshotted under the old nondeterministic
+    behavior needs regenerating too, not just the code path that produced it.
 20. **A twelfth, non-bug wrinkle in the CI plumbing itself**: the
     baseline-bootstrap job's own commit (authored as `github-actions[bot]`
     via `git config user.name`/`user.email` in the "Generate + commit
