@@ -1011,6 +1011,26 @@ every RLS/pgTAP test being authored-but-unexecuted.
     tokens for actual copy (not disabled/decorative use) should get its
     contrast ratio checked against the specific background it sits on
     before shipping, not assumed safe by token-ladder position.
+17. **A ninth bug, in the smoke spec itself, surfaced once the a11y fix let
+    the journey progress into the fulfillment step**: `providerPage
+    .getByText('shipped')` matched 2 elements — `ProviderOrdersPage`'s
+    read-only `StatusBadge` span showing the persisted `fulfillment_status`,
+    **and** the "Fulfillment status" `SelectField`'s own `<option
+    value="shipped">shipped</option>`, which exists in the DOM (and is
+    text-matchable by Playwright) regardless of whether the native
+    `<select>` is open. Fixed by scoping the assertion to
+    `providerPage.locator('span').filter({ hasText: 'shipped' })` — matches
+    only the badge, not the option, since `<option>` elements aren't
+    `<span>`s. The brand-side equivalent assertion (`ShopifyOrdersPage`,
+    line 74) didn't need the same fix — that page is read-only, with no
+    `<select>` anywhere, so its `StatusBadge` is the only element containing
+    "shipped" at all. The tell for next time: any page pairing a live
+    `<select>` of status options with a separate read-only badge showing
+    the *current* status is a latent `getByText` collision the moment the
+    badge's text matches one of the select's option values — scope the
+    locator to an element type/role the option can't also match, don't
+    assume a plain text match is unique just because it reads that way in
+    the rendered page.
 
 ## Stack rules
 

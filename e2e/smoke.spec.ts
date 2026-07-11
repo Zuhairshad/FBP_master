@@ -66,7 +66,10 @@ test.describe('booking -> order -> fulfillment journey', () => {
       await providerPage.getByLabel('Fulfillment status').selectOption('shipped')
       await providerPage.getByLabel('Tracking number').fill('E2E-TRACK-123')
       await providerPage.getByRole('button', { name: 'Save' }).click()
-      await expect(providerPage.getByText('shipped')).toBeVisible()
+      // Scoped to <span> — getByText('shipped') also matches the
+      // Fulfillment status <select>'s static "shipped" <option>, which
+      // exists in the DOM regardless of the dropdown's open/closed state.
+      await expect(providerPage.locator('span').filter({ hasText: 'shipped' })).toBeVisible()
     })
 
     await test.step('brand sees the fulfillment status reflected back, read-only', async () => {
