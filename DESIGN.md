@@ -98,8 +98,8 @@ lift (matches `surface-1` being the workhorse in the dark ladder too).
 
 | Token | Dark | Light | Use |
 |---|---|---|---|
-| `{colors.success}` | #27a644 | #1a8a3a | Status pills, success states |
-| `{colors.error}` | #e5484d | #d13438 | Form validation, RLS/network error text — **extension beyond the source doc**, which has no error color (a marketing page has no forms) |
+| `{colors.success}` | #27a644 | #177c34 | Status pills, success states |
+| `{colors.error}` | #e5484d | #c63135 | Form validation, RLS/network error text — **extension beyond the source doc**, which has no error color (a marketing page has no forms) |
 
 ## Typography
 
@@ -251,6 +251,13 @@ Same as the source, plus dashboard-specific additions:
 - Light-theme color values are invented (see Colors section) — the source only
   documents Linear's dark marketing site. If FBP later gets real brand guidance for a
   light theme, replace this section's values, not the dark ones.
+- Light-theme `success`/`error` were darkened during Phase 13's accessibility
+  pass (`#1a8a3a`→`#177c34`, `#d13438`→`#c63135`): the originals failed WCAG AA
+  4.5:1 as `StatusBadge`'s text color against its own `bg-{success,error}/10`
+  tint — `#1a8a3a` topped out at 4.43:1 even against pure white, below the
+  4.5:1 floor, so no background tint could fix it without darkening the text
+  itself. Dark theme's `success`/`error` already passed (5.64:1/4.69:1 against
+  their own tint) and were left unchanged.
 - Marketing-only source components (`pricing-card`, `testimonial-card`, `cta-banner`,
   `customer-logo-tile`, `pricing-tab`, `top-nav`'s centered-links variant) are
   intentionally not implemented — no dashboard use for them.

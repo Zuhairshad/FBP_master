@@ -17,6 +17,17 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Phase 13 bootstrap only: e2e/visual.spec.ts has no committed baselines
+  # yet (TESTING.md: "Baselines: first run creates them... generate them on
+  # the CI runner, not locally"). Trigger this manually once per branch that
+  # needs new/updated baselines; regular pull_request/push runs never take
+  # this path and get the normal read-only permissions below.
+  workflow_dispatch:
+    inputs:
+      update_snapshots:
+        description: 'Regenerate Playwright visual baselines and commit them to this branch'
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -29,8 +40,17 @@ jobs:
   ship-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Job-level override, not workflow-level: only this job ever needs to
+    # push a commit (the manual baseline-update path below), and only when
+    # workflow_dispatch's update_snapshots input is true — every regular
+    # pull_request/push run never reaches that step. Scoped as narrowly as
+    # GitHub Actions permissions allow.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref }}
 
       # Version comes from root package.json's "packageManager" field — passing
       # `version:` here too makes pnpm/action-setup v4 refuse to run
@@ -46,13 +66,48 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # ---- Local Supabase for integration + RLS tests ----------------------
-      # Uncomment if your integration tests hit a real local database
-      # (they should — see TESTING.md). Runner has Docker; this just works.
-      # - uses: supabase/setup-cli@v1
-      #   with:
-      #     version: latest
-      # - run: supabase start
-      # - run: supabase db reset
+      # Phase 13: this repo's RLS/pgTAP tests had never run against a live
+      # Postgres before this — every prior phase authored them against this
+      # sandbox's own network-restricted dev environment (no Docker/no
+      # supabase.co reachable there, see CLAUDE.md Landmines) and left live
+      # execution as an explicit UNVERIFIED item. The CI runner has Docker
+      # and unrestricted network, so this is where that finally happens.
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: supabase start
+      - run: supabase db reset
+
+      - name: RLS/pgTAP tests against the real local Postgres
+        run: supabase test db
+
+      # supabase status -o env's default var names (API_URL, ANON_KEY,
+      # SERVICE_ROLE_KEY) are Supabase CLI's documented convention; mapped
+      # here to the VITE_*/SUPABASE_* names app/ and worker/ actually read
+      # (see app/.env.example, worker/.dev.vars.example). ASSUMPTION: this
+      # is the first time this repo has run supabase start in CI, so these
+      # exact names are UNVERIFIED until this workflow's own first green run.
+      - name: Capture local Supabase connection info
+        run: supabase status -o env > /tmp/supabase-status.env
+      - name: Map Supabase env vars for the app dev server + e2e seeding
+        run: |
+          # `supabase status -o env`'s output is shell-quoted
+          # (API_URL="http://..."). GITHUB_ENV's own file format does NOT do
+          # shell parsing — piping quoted output straight into it (as an
+          # earlier version of this step did) leaves the literal quote
+          # characters embedded in the env var's value, which then breaks
+          # any consumer expecting a bare URL string (confirmed: this exact
+          # bug produced "Invalid supabaseUrl: Must be a valid HTTP or HTTPS
+          # URL" in e2e/global-setup.ts's createClient() call). `source`-ing
+          # the file as real shell strips the quotes correctly first.
+          set -a
+          source /tmp/supabase-status.env
+          set +a
+          echo "VITE_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
+          echo "VITE_SUPABASE_PUBLISHABLE_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+          echo "VITE_WORKER_URL=http://localhost:8787" >> "$GITHUB_ENV"
+          echo "SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
 
       - name: Typecheck
         run: pnpm typecheck
@@ -69,11 +124,51 @@ jobs:
       - name: Worker dry-run deploy
         run: pnpm --filter worker deploy:dry-run
 
-      # ---- E2E + visual regression (uncomment once real routes + e2e/visual.spec.ts exist)
-      # - name: Install Playwright Chromium
-      #   run: pnpm exec playwright install --with-deps chromium
-      # - name: E2E + visual regression
-      #   run: pnpm exec playwright test
+      # ---- E2E + visual regression + accessibility (Phase 13) --------------
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E + visual regression + accessibility
+        if: github.event.inputs.update_snapshots != 'true'
+        run: pnpm exec playwright test
+
+      # Bootstrap-only path: generates e2e/visual.spec.ts's baseline
+      # screenshots on this exact Linux runner and commits them straight to
+      # the branch the workflow was dispatched against. Never runs on a
+      # normal pull_request/push trigger.
+      #
+      # Runs the FULL suite (no file filter), not visual.spec.ts alone: the
+      # real "E2E + visual regression + accessibility" step above always
+      # runs the full suite too (`pnpm exec playwright test`, smoke +
+      # visual together in one invocation, one global-setup, one dev
+      # server), and smoke.spec.ts mutates the seeded order's
+      # fulfillment_status/tracking_number as its last step — so
+      # /provider/orders is always screenshotted *after* that mutation in
+      # a real run. Generating baselines from `playwright test
+      # e2e/visual.spec.ts` alone (an earlier version of this step)
+      # captured the order's pristine pre-mutation state instead — a
+      # permanent, reproducible mismatch against every real comparison run
+      # (misdiagnosed at first as a worker-scheduling race; workers:1 is
+      # still worth keeping since the shared-fixture suite genuinely needs
+      # deterministic ordering, but it wasn't what fixed this specific
+      # diff). --update-snapshots is a no-op for smoke.spec.ts, which has
+      # no screenshot assertions — safe to apply suite-wide. Deliberately
+      # NOT two separate `playwright test` invocations: each one runs its
+      # own global-setup + dev server, and a second sign-up attempt for the
+      # same seeded brand/provider emails would fail outright.
+      - name: Generate + commit visual baselines
+        if: github.event.inputs.update_snapshots == 'true'
+        run: |
+          pnpm exec playwright test --update-snapshots
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add e2e/*-snapshots
+          if git diff --cached --quiet; then
+            echo "No baseline changes to commit."
+          else
+            git commit -m "test: update Playwright visual baselines (Linux, via workflow_dispatch)"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
 
       - name: Upload failure evidence (screenshots, traces, report)
         if: failure()

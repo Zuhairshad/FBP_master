@@ -8,14 +8,22 @@
 --
 -- NOTE: Phase 3 (20260710133050_extend_directory_visibility.sql) added
 -- directory SELECT policies (to authenticated using (true)) on all three
--- tables so a brand can browse providers before any booking exists.
--- warehouses has two fixture rows (one per provider) so its visibility
--- assertions below change from "0 others visible" to "others visible, but
--- still not mutable"; warehouse_services/storage_spaces only have fixture
--- rows under provider A, so their counts are unaffected by the wider policy.
+-- tables so a brand can browse providers before any booking exists. All
+-- three tables have fixture rows under both provider A and provider B, so
+-- each one's "other provider can read via directory, but not mutate"
+-- assertion is a real test of the wider policy rather than a vacuous count
+-- (a prior version of this file only fixtured warehouse_services/
+-- storage_spaces under provider A, which made the "provider A cannot see
+-- provider B's service/space" assertions trivially true regardless of
+-- whether the directory policy existed at all — found during the Phase 13
+-- RLS audit and fixed here, along with a pre-existing plan-count mismatch
+-- (this file declared plan(20) but only had 19 real assertions — would
+-- have failed at finish() the first time it actually ran against a live
+-- Postgres, another artifact of this repo never having live-verified its
+-- RLS tests before Phase 13; see CLAUDE.md Landmines).
 
 begin;
-select plan(20);
+select plan(21);
 
 -- Silent-zero-row helpers — RLS-blocked UPDATE/DELETE match 0 rows rather
 -- than raising (same reasoning as profiles_rls.test.sql's helper: UPDATE and
@@ -41,6 +49,32 @@ declare
   affected int;
 begin
   delete from public.warehouses where id = target_id;
+  get diagnostics affected = row_count;
+  return affected;
+end;
+$$;
+
+create function pg_temp.try_update_warehouse_service_name(target_id uuid, new_name text)
+returns int
+language plpgsql
+as $$
+declare
+  affected int;
+begin
+  update public.warehouse_services set name = new_name where id = target_id;
+  get diagnostics affected = row_count;
+  return affected;
+end;
+$$;
+
+create function pg_temp.try_update_storage_space_name(target_id uuid, new_name text)
+returns int
+language plpgsql
+as $$
+declare
+  affected int;
+begin
+  update public.storage_spaces set name = new_name where id = target_id;
   get diagnostics affected = row_count;
   return affected;
 end;
@@ -99,6 +133,13 @@ values (
   'Pick & Pack'
 );
 
+insert into public.warehouse_services (id, warehouse_id, name)
+values (
+  'bbbbbbbb-1111-0000-0000-000000000001',
+  'bbbbbbbb-0000-0000-0000-000000000001',
+  'Cold Storage'
+);
+
 insert into public.storage_spaces (id, warehouse_id, name, unit_type, capacity_units)
 values (
   'aaaaaaaa-2222-0000-0000-000000000001',
@@ -106,6 +147,15 @@ values (
   'Pallet Rack A',
   'pallet',
   50
+);
+
+insert into public.storage_spaces (id, warehouse_id, name, unit_type, capacity_units)
+values (
+  'bbbbbbbb-2222-0000-0000-000000000001',
+  'bbbbbbbb-0000-0000-0000-000000000001',
+  'Pallet Rack B',
+  'pallet',
+  30
 );
 
 -- warehouses: anon --------------------------------------------------------
@@ -203,15 +253,15 @@ set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","
 
 select is(
   (select count(*) from public.warehouse_services)::int,
-  1,
-  'provider A sees exactly one service (their own warehouse''s)'
+  2,
+  'provider A sees both services via the directory policy (own + provider B''s)'
 );
 
 select is(
   (select count(*) from public.warehouse_services
    where warehouse_id = 'bbbbbbbb-0000-0000-0000-000000000001')::int,
-  0,
-  'provider A cannot see a service under provider B''s warehouse'
+  1,
+  'provider A can read the service under provider B''s warehouse via the directory policy (read-only)'
 );
 
 select lives_ok(
@@ -225,6 +275,12 @@ select throws_like(
      values ('bbbbbbbb-0000-0000-0000-000000000001', 'Hijacked service') $$,
   '%row-level security policy%',
   'provider A cannot insert a service under provider B''s warehouse'
+);
+
+select is(
+  pg_temp.try_update_warehouse_service_name('bbbbbbbb-1111-0000-0000-000000000001', 'hijacked'),
+  0,
+  'provider A''s update against provider B''s service silently matches zero rows under RLS'
 );
 
 reset role;
@@ -248,15 +304,15 @@ set local request.jwt.claims to '{"sub":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","
 
 select is(
   (select count(*) from public.storage_spaces)::int,
-  1,
-  'provider A sees exactly one storage space (their own warehouse''s)'
+  2,
+  'provider A sees both storage spaces via the directory policy (own + provider B''s)'
 );
 
 select is(
   (select count(*) from public.storage_spaces
    where warehouse_id = 'bbbbbbbb-0000-0000-0000-000000000001')::int,
-  0,
-  'provider A cannot see a storage space under provider B''s warehouse'
+  1,
+  'provider A can read the storage space under provider B''s warehouse via the directory policy (read-only)'
 );
 
 select lives_ok(
@@ -270,6 +326,12 @@ select throws_like(
      values ('bbbbbbbb-0000-0000-0000-000000000001', 'Hijacked space', 'bin', 20) $$,
   '%row-level security policy%',
   'provider A cannot insert a storage space under provider B''s warehouse'
+);
+
+select is(
+  pg_temp.try_update_storage_space_name('bbbbbbbb-2222-0000-0000-000000000001', 'hijacked'),
+  0,
+  'provider A''s update against provider B''s storage space silently matches zero rows under RLS'
 );
 
 reset role;

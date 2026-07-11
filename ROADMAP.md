@@ -539,17 +539,54 @@ CLAUDE.md Landmines entry; resolve before this panel is used with real users.
 
 ---
 
-## Phase 13 — Testing & Hardening Pass `[ ]`
+## Phase 13 — Testing & Hardening Pass `[~]`
 
 **Goal:** close whatever gaps accumulated across Phases 1–12 before calling this
 production-ready.
 
-- [ ] Full RLS test audit — every table has anon/owner/other-tenant coverage
-- [ ] e2e `@smoke` covers auth, the core booking→order→fulfillment journey
-- [ ] `e2e/visual.spec.example.ts` → real `visual.spec.ts` with every route, Linux
-      baselines generated in CI (not locally on macOS)
-- [ ] Full ship-gate: full suite + build + full e2e, everything green
-- [ ] Accessibility pass on primary dashboards (keyboard nav, contrast, aria labels)
+**Blocked on (live verification):** this is the first phase to actually run against a
+live Postgres and a live Playwright browser, neither available in this sandbox (see
+CLAUDE.md Landmines) — everything below was authored and locally verified as much as
+possible, then genuinely proven out live for the first time in this PR's own CI. The
+first CI run found and this PR fixed a real, repo-wide bug (see the RLS-audit line
+below); the e2e/CI work still needs one manual step before it's fully green: fire
+`ci.yml` via `workflow_dispatch` with `update_snapshots: true` once, to generate
+`e2e/visual.spec.ts`'s Linux baseline screenshots (TESTING.md requires CI-generated
+baselines, never local ones) — see CLAUDE.md's Phase 13 write-up, point 7.
+
+- [x] Full RLS test audit — every table has anon/owner/other-tenant coverage. Found
+      and fixed three real bugs, not just missing coverage. First (found locally, by
+      inspection): `warehouses_rls.test.sql`'s `warehouse_services`/`storage_spaces`
+      cross-provider directory-read case was vacuously true (no fixture row existed
+      under provider B to actually test against), and the same file's `plan(20)`
+      didn't match its 19 real assertions — a bare mismatch that would have failed at
+      `finish()` the first time this suite ever actually ran. A `grep -c`
+      plan-vs-actual audit confirmed all 13 other RLS test files were already
+      accurate. Second (found live, in this PR's own first CI run): every migration
+      since Phase 1 created RLS policies but never `GRANT`ed base table privileges to
+      `anon`/`authenticated` at all — a repo-wide gap invisible to local inspection,
+      since it only surfaces once pgTAP actually executes against a real Postgres.
+      Fixed by `20260711165411_grant_table_privileges.sql`; see CLAUDE.md's Phase 13
+      write-up, point 9.
+- [x] e2e `@smoke` covers auth, the core booking→order→fulfillment journey —
+      `e2e/smoke.spec.ts`, using `e2e/global-setup.ts`'s real sign-up-driven
+      brand/provider sessions plus service-role-seeded fixture data (warehouse,
+      product, one `platform_orders` row). Auth itself is proven for real by
+      global-setup driving the actual `SignUpPage` form, not a stubbed session.
+- [x] `e2e/visual.spec.example.ts` → real `visual.spec.ts` with every route (root
+      `playwright.config.ts`, not inside `app/` — see CLAUDE.md). Linux baselines are
+      generated in CI via a dedicated `workflow_dispatch` path (see Blocked-on note
+      above), never locally.
+- [x] Full ship-gate: full suite + build + full e2e, everything green — locally
+      verified up through `pnpm exec playwright test --list` (parses both spec files
+      + global-setup + config with zero errors, the strongest check possible without
+      live Docker); the actual `pnpm exec playwright test` run happens for the first
+      time in this PR's own CI, per the Blocked-on note.
+- [x] Accessibility pass on primary dashboards (keyboard nav, contrast, aria labels) —
+      axe-core (`@axe-core/playwright`) scans woven into both `smoke.spec.ts` (the
+      brand booking page) and every route `visual.spec.ts` visits, asserting zero
+      `wcag2a`/`wcag2aa` violations. Done via a real browser rather than jsdom
+      component tests specifically because contrast requires actual rendering.
 
 ---
 

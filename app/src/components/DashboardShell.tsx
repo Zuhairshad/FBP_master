@@ -142,7 +142,7 @@ function SidebarContent({
         {groups.map((group, index) => (
           <div key={group.label ?? `group-${index}`} className={index > 0 ? 'mt-4' : undefined}>
             {group.label && (
-              <p className="px-2.5 pb-1.5 text-xs font-medium uppercase tracking-wide text-ink-tertiary">
+              <p className="px-2.5 pb-1.5 text-xs font-medium uppercase tracking-wide text-ink-subtle">
                 {group.label}
               </p>
             )}

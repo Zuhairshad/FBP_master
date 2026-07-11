@@ -96,8 +96,13 @@ real users, no real money.
   schema changes happen), and `tests/` (pgTAP RLS policy tests, run via `supabase test db`).
 - `.claude/` — engineering-os hooks (`floor.sh`, `commit-gate.sh`, `remind.sh`) and the `/task`
   command.
-- `e2e/` — Playwright specs. Currently only `visual.spec.example.ts` — rename to `visual.spec.ts`
-  and list real routes once pages exist.
+- `e2e/` — Playwright specs (built, Phase 13): `global-setup.ts` (seeds brand/provider via a
+  real headless sign-up, admin via a direct Postgres trigger-bypass, plus fixture data via the
+  service-role key), `smoke.spec.ts` (`@smoke`-tagged core booking→order→fulfillment journey),
+  `visual.spec.ts` (`@visual`-tagged, every real route, baseline screenshots + axe-core
+  accessibility scan per route). `.auth/` (gitignored) holds the storageState files
+  global-setup produces. `playwright.config.ts` lives at the **repo root**, not inside `e2e/`
+  or `app/` — see Phase 13 write-up for why.
 - `scripts/eyes.mjs` — dev-loop UI screenshot + console-error check (desktop + mobile).
 
 ## Architecture facts
@@ -716,6 +721,438 @@ because Postgres RLS has no way to touch `auth.users` or invalidate a session.
    `profiles` column, expect the same fan-out and grep for `company_name:` (the
    cheapest reliable marker of a `Profile` literal in this codebase) to find every site.
 
+**Testing & Hardening Pass (built, Phase 13):** closes the gaps Phases 1–12
+accumulated — a full RLS audit, real e2e/visual/accessibility infrastructure
+(this repo's first), and CI finally exercising a live Postgres instead of
+every RLS/pgTAP test being authored-but-unexecuted.
+1. **RLS audit found two real, distinct bugs**, not just missing coverage.
+   First: `warehouses_rls.test.sql` fixtured `warehouse_services`/
+   `storage_spaces` rows under provider A only, so its "provider A cannot see
+   provider B's service/space" assertions were vacuously true regardless of
+   whether Phase 3's directory-open SELECT policy existed at all — there was
+   no fixture row under provider B's warehouse for the policy to actually
+   grant or deny access to. Fixed by adding fixture rows under both
+   providers' warehouses and asserting the real positive case (provider A
+   *can* read provider B's rows via the directory policy) alongside the
+   still-correct mutation-negative case. Second: the same file declared
+   `plan(20)` but only had 19 real assertions — a bare count mismatch that
+   would have failed at `finish()` the moment this suite first actually ran,
+   which (per the sandbox limitation below) had never happened before this
+   phase. Every other RLS test file's plan count was verified against its
+   actual assertion count (a plain `grep -c` audit, not manual reading) and
+   all 13 others were already accurate.
+2. **This repo's RLS/pgTAP tests had genuinely never executed against a live
+   Postgres before this phase** — every prior phase's own write-up says so
+   explicitly ("written, not yet executed"), because the sandbox these
+   phases were built in has no Docker access (see Landmines). GitHub
+   Actions runners have both Docker and unrestricted network, so
+   `.github/workflows/ci.yml`'s `supabase start`/`supabase db reset` steps
+   (previously commented out, exactly for this moment) are now live, with a
+   new `supabase test db` step actually running every `supabase/tests/*.sql`
+   file. This is the first time any of this repo's RLS tests have real
+   executable proof behind them rather than just internal consistency.
+3. **Playwright infra, root-level, not inside `app/`**: `playwright.config.ts`
+   + `e2e/global-setup.ts` + `e2e/smoke.spec.ts` + `e2e/visual.spec.ts` (the
+   real file, replacing `visual.spec.example.ts` per that file's own
+   "rename: drop .example" instruction) live at the repo root since e2e
+   exercises the built app *and* would exercise the Worker if any spec
+   needed it — it's a cross-package concern, not `app/`-internal. Needed a
+   new root `tsconfig.json` (scoped to `e2e/**/*.ts` + `playwright.config.ts`)
+   and a new root `.oxlintrc.json`, since neither existed before (root
+   wasn't a workspace member — see `pnpm-workspace.yaml` — so `pnpm
+   typecheck`/`pnpm lint`'s recursive `-r` flag never touched root-level
+   files). Root `package.json` gained `typescript`, `@types/node`, `oxlint`,
+   `@supabase/supabase-js`, `pg`, `@types/pg`, and `@axe-core/playwright` as
+   devDependencies — each justified: the first three so root-level TS files
+   have their own typecheck/lint coverage at all; `@supabase/supabase-js` +
+   `pg` for `global-setup.ts`'s fixture seeding (REST API for
+   brand/provider/order data, a direct Postgres connection only for the
+   admin-account trigger-bypass — see point 5); `@axe-core/playwright` for
+   the accessibility pass (point 4).
+4. **Accessibility pass via axe-core inside the same e2e specs**, not a
+   separate harness — `smoke.spec.ts` scans the brand booking page (the
+   primary form-heavy page in the core journey) and `visual.spec.ts` scans
+   every route it already visits, asserting zero `wcag2a`/`wcag2aa`
+   violations. Deliberately *not* done as jsdom/vitest component tests:
+   contrast is a real-pixel computation vitest's jsdom environment can't
+   perform, so a browser-based check (axe-core running against actual
+   rendered Chromium) is the only mechanism that can honestly claim to have
+   checked contrast, not just ARIA structure.
+5. **`e2e/global-setup.ts` seeds three roles, each a different way,
+   documenting *why* each is different**: brand/provider are self-service,
+   so global-setup drives the real `SignUpPage` form through a headless
+   browser (not a hand-constructed Supabase session) — this is deliberately
+   the *most* faithful path available, exercising the actual signup flow
+   rather than bypassing it. `admin` has no self-service or REST-API
+   provisioning path at all (see the Phase 12-era Landmines entry below) —
+   the only way in is the same trigger-disable-for-one-`UPDATE` technique
+   the pgTAP tests already use, done here via a direct `pg` connection to
+   Supabase CLI's fixed local-dev Postgres (`postgres:postgres@127.0.0.1:
+   54322`, confirmed against `supabase/config.toml`'s `[db]` port, no
+   password override present). This is the first non-pgTAP context in the
+   repo to use that bypass, and it's wrapped in a try/catch that skips
+   admin-fixture creation (not the whole e2e run) on failure —
+   `visual.spec.ts`'s admin `describe` block itself checks whether
+   `e2e/.auth/admin.json` exists and self-skips if the seed didn't happen,
+   so a raw-Postgres-connection failure degrades to "less coverage," not a
+   red build. Warehouse/storage-space/product/`platform_orders` fixture
+   data is seeded via the service-role REST client (the same "bypass RLS,
+   mirror the service-role writer" pattern every pgTAP fixture already
+   uses) — deliberately *not* via a real marketplace OAuth+webhook flow,
+   since driving one of those in e2e is its own multi-day project outside
+   this phase's scope; the booking itself is **not** pre-seeded, since
+   creating and approving it live is exactly what `smoke.spec.ts` exists to
+   prove.
+6. **`e2e/smoke.spec.ts`** drives the exact ROADMAP-specified journey — booking
+   request → provider approval → the seeded order becoming visible via that
+   approval → provider sets `fulfillment_status`/`tracking_number` → brand
+   sees it reflected back read-only — using two real browser contexts
+   (`storageState` from global-setup) rather than one shared session, since
+   the journey is genuinely two-sided and RLS visibility differs per role.
+   Deliberately does **not** re-prove sign-up/sign-in itself (that already
+   happens, for real, in global-setup) — this keeps the smoke spec focused
+   on the journey ROADMAP actually asks for.
+7. **Baseline bootstrap problem, solved via a scoped `workflow_dispatch`
+   path, not by skipping the requirement.** `e2e/visual.spec.ts` needs
+   committed baseline screenshots, but generating them requires a live
+   Linux Playwright run this sandbox cannot do (no Docker, so no local
+   Supabase for the app to run against either) — and TESTING.md is explicit
+   that baselines must come from CI, never from a contributor's own laptop.
+   `ci.yml` gained a `workflow_dispatch` trigger with an `update_snapshots`
+   boolean input; when set, a job-level `permissions: contents: write`
+   override (scoped to this one job, not the workflow default) lets a
+   dedicated step run `playwright test --update-snapshots` and push the
+   resulting `*-snapshots/` directories straight to the dispatched branch.
+   Every regular `pull_request`/`push` run takes neither this permission
+   nor this step. **UNVERIFIED — by design, this is the first thing to run
+   once this phase's PR is open**: fire the workflow manually with
+   `update_snapshots: true` before expecting `pnpm exec playwright test` to
+   pass on a normal run.
+8. **Every env-var name this phase introduced into CI is a documented
+   assumption, not a verified fact**, flagged inline in `ci.yml` itself:
+   `supabase status -o env`'s default output keys (`API_URL`, `ANON_KEY`,
+   `SERVICE_ROLE_KEY`) come from Supabase CLI's own established convention,
+   not a fetch this sandbox could perform (`supabase status` itself needs
+   Docker) — confirmed only that `--override-name` exists and works via
+   `supabase status --help` (no live instance needed for `--help`). If the
+   first CI run shows these names are wrong, the fix is entirely inside the
+   two `Capture`/`Map` steps in `ci.yml`, nothing else.
+9. **The first live `supabase test db` run surfaced a real, systemic gap
+   nine phases deep**: `20260711165411_grant_table_privileges.sql` grants
+   base `SELECT`/`INSERT`/`UPDATE`/`DELETE` on every table to `anon`/
+   `authenticated`, plus `ALTER DEFAULT PRIVILEGES` so this can't quietly
+   reopen table-by-table. Every migration since Phase 1 created RLS
+   policies but never `GRANT`ed table-level access at all — table grants and
+   RLS are two separate Postgres gates, and without the grant every pgTAP
+   query failed with "permission denied for table X" before RLS ever
+   evaluated, instead of the RLS-mediated "0 rows" / "row-level security
+   policy" errors every RLS test in this repo already asserts (Postgres's
+   own error HINT named the exact fix). Confirmed this doesn't weaken
+   anything: the `*_tokens`/`sync_logs` tables' zero-policy RLS still
+   returns zero rows to everyone regardless of the grant — a table grant is
+   a precondition for RLS to run, not an alternative to it.
+10. **The same first live run also surfaced a genuine circular RLS bug from
+    Phase 3**: `select`/`insert`/`update`/`delete` on `inventory`
+    (`20260710133106_create_inventory.sql`) each check ownership via a live
+    subquery into `products`, while `products_select_via_approved_booking`
+    (added in that same migration) checks visibility via a live subquery
+    back into `inventory` — evaluating either table's RLS recurses into the
+    other's indefinitely ("infinite recursion detected in policy for
+    relation inventory/products"). Neither this sandbox nor any prior phase
+    could have caught this without an actual Postgres to run policies
+    against. Fixed by `20260711182031_fix_inventory_products_rls_recursion.sql`:
+    wraps the one edge that closes the cycle
+    (`products_select_via_approved_booking`'s inventory lookup) in a
+    `SECURITY DEFINER` function — such a function executes as its owner,
+    exempt from RLS by default (no table here uses `FORCE ROW LEVEL
+    SECURITY`), so its internal query into `inventory` never re-triggers
+    `inventory`'s policies. The predicate itself is byte-for-byte identical
+    (same joins/filters) — this changes *how* it's evaluated, not what's
+    visible to anyone.
+11. **One more bug, this time in Phase 12's own test, not the schema**:
+    `profiles_rls.test.sql`'s "even an admin cannot change a profile's
+    role" assertion set `role = 'provider'` on a fixture user whose role
+    was *already* `'provider'` — a same-value "change" that correctly never
+    trips `prevent_role_change`'s `new.role <> old.role` guard, so the test
+    asserted an exception that had no reason to fire. `prevent_role_change`
+    itself was never broken; the test target value just needed to be an
+    actually-different role (`'brand'`). The tell for next time: an
+    assertion like "X cannot change to value Y" is only a real test when Y
+    differs from the fixture's current value — this class of test bug is
+    invisible without live execution, same as the two findings above.
+12. **A fourth bug, this time in `ci.yml` itself, only surfaced once
+    `supabase test db` was passing and the pipeline reached the e2e step**:
+    `supabase status -o env`'s output is shell-quoted
+    (`API_URL="http://127.0.0.1:54321"`), but the original "Capture local
+    Supabase connection info" step piped that output directly into
+    `$GITHUB_ENV` (`supabase status -o env | tee /tmp/... >> "$GITHUB_ENV"`).
+    GitHub's `GITHUB_ENV` file format does **not** do shell parsing — it
+    takes everything after the first `=` as the literal value — so `API_URL`
+    ended up containing the literal quote characters as part of its value.
+    The next step's `echo "SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"` then
+    propagated those embedded quotes into `SUPABASE_URL`, producing
+    `e2e/global-setup.ts`'s `createClient(SUPABASE_URL, ...)` call failing
+    with "Invalid supabaseUrl: Must be a valid HTTP or HTTPS URL" — a string
+    that looked correct in the workflow's own env-dump log (GitHub's log
+    formatter always wraps env values in quotes for display, masking the
+    bug) but wasn't. Fixed by writing `supabase status -o env`'s output to a
+    plain file and `source`-ing it as real shell in the "Map" step (`set -a;
+    source /tmp/supabase-status.env; set +a`) before re-exporting individual
+    vars to `$GITHUB_ENV` — `source` parses the shell-quoted syntax
+    correctly and strips the quotes, so the values written onward are bare
+    strings. The tell for next time: never pipe a tool's shell-quoted
+    `KEY="value"`-style output directly into `$GITHUB_ENV` — always parse it
+    as shell first (`source`, or `eval`) since GITHUB_ENV's own format is a
+    flat `KEY=value` (or heredoc) convention with no quote-stripping of its
+    own.
+13. **A fifth bug, once the env-quoting fix let CI reach the real Playwright
+    browser for the first time**: `e2e/global-setup.ts`'s `signUpViaUi`
+    called `page.getByLabel('Name')` to fill `SignUpPage`'s display-name
+    field, but Playwright's `getByLabel` matches by substring by default —
+    "Name" is also a substring of the page's other field, labeled "Company
+    name (optional)" — so the locator resolved to 2 elements and Playwright
+    correctly refused to guess ("strict mode violation"). Fixed by passing
+    `{ exact: true }` to that one `getByLabel` call. The tell for next time:
+    any `getByLabel`/`getByText`/`getByRole({name})` call is a substring
+    match unless `exact: true` is passed — safe when the target string is
+    unique among all labels on the page, a latent bug the moment a second
+    label contains it as a substring (as happened here between "Name" and
+    "Company name (optional)"), and this class of bug is invisible without
+    a real browser actually resolving the locator, same as every other
+    Phase 13 finding in this section.
+14. **A sixth bug — this one a real, previously-shipped production defect in
+    `AuthProvider.tsx`, not test infrastructure.** Once the label-locator fix
+    let `signUpViaUi` actually submit the sign-up form, the resulting
+    navigation to `/` bounced straight back to `/sign-in` instead of landing
+    on `/brand` — reproduced consistently, not flaky. Root cause:
+    `AuthProvider`'s `syncSession` awaited `fetchProfile(session.user.id)`
+    (a network round trip) before calling `setState` even once. During that
+    await, React state still held whatever `loading`/`session` values were
+    set by the *initial* (pre-signup, unauthenticated) `getSession()`
+    resolution — typically `loading: false, session: null`. `SignUpPage`
+    calls `navigate('/')` immediately after `supabase.auth.signUp()`
+    resolves, and `ProtectedRoute` reads `{ session, loading }` on that very
+    render — seeing the stale `loading: false` (not the true "an auth
+    transition is in progress" state) and `session: null`, it redirected to
+    `/sign-in` before the new session's profile fetch ever got a chance to
+    complete. This is a real race any user could hit on a slow connection,
+    not an e2e-only artifact — it just took a real browser driving a real
+    sign-up against a real (if local) Supabase instance to surface, since
+    jsdom/mocked-network component tests never model this network-timing
+    gap. Fixed in `app/src/hooks/AuthProvider.tsx`: `syncSession` now calls
+    `setState` **synchronously** with `{ ...prev, session, loading: true }`
+    the moment a non-null session arrives, before awaiting `fetchProfile` —
+    so any consumer reading state during the profile-fetch window sees
+    `loading: true`, never a stale `session: null`. Regression test:
+    `app/src/hooks/AuthProvider.test.tsx` (new file) mocks
+    `supabase.auth.onAuthStateChange`/`supabase.from` with a controllable
+    pending profile-fetch promise and asserts the exact invariant that
+    broke — confirmed red against the pre-fix code (session stayed `none`
+    throughout), green after. The tell for next time: any `useEffect` that
+    fires `setState` only after an `await` has a window, between the state
+    change that triggers the effect and the `setState` call, where
+    downstream consumers see **stale** state, not "no state yet" — if a
+    boolean like `loading` is meant to cover that whole window, it must be
+    set at the top of the async function, synchronously, not just at the
+    end.
+15. **A seventh bug — the same missing-GRANTs class as finding 9, but for a
+    third role that finding's own migration didn't cover.** Once
+    `signUpViaUi` worked, `e2e/global-setup.ts`'s service-role fixture
+    seeding hit "permission denied for table warehouses" using
+    `SUPABASE_SERVICE_ROLE_KEY`. `service_role` has the `BYPASSRLS`
+    attribute, which only skips RLS *policy* evaluation — it is not a
+    substitute for the base table-level `GRANT` a role needs before a query
+    is attempted at all, and `20260711165411_grant_table_privileges.sql`
+    only granted `anon`/`authenticated` (the two Data-API roles), never
+    `service_role`. This is a bigger deal than an e2e fixture failing: every
+    production write in `worker/` — marketplace tokens, `platform_orders`,
+    `sync_logs`, admin moderation — uses this exact role, so the same gap
+    was live in the real Worker code path, not just this test's fixture
+    seeding, and had been since Phase 5. pgTAP's own RLS tests never caught
+    it because their fixture inserts run as the `postgres` superuser, not
+    `service_role`. Fixed by a second migration,
+    `20260711211655_grant_service_role_table_privileges.sql` (kept separate
+    from the already-pushed anon/authenticated migration rather than
+    editing shared history) — same `GRANT`/`ALTER DEFAULT PRIVILEGES`
+    shape, targeting `service_role`. The tell for next time: a missing-GRANT
+    fix that enumerates specific roles needs to enumerate **every** role
+    that actually touches the table, not just the ones the failure you're
+    fixing happened to surface — anon/authenticated failing first didn't
+    mean service_role was fine, it just meant nothing had exercised it live
+    yet.
+16. **An eighth bug, and the first real finding from the axe-core
+    accessibility pass actually running** (`e2e/smoke.spec.ts`'s scan of
+    `/brand/bookings`): `DashboardShell`'s sidebar nav-group labels
+    ("Catalog", "Fulfillment", "Marketplaces") used `text-ink-tertiary` on
+    `bg-surface-1` — in the light theme that's `#9195a0` on `#ffffff`, a
+    2.99:1 contrast ratio, failing WCAG 2 AA's 4.5:1 minimum for normal-size
+    text (`color-contrast`, `wcag2aa`/`wcag143`, impact: serious). This had
+    shipped since the Phase 9 shadcn/Radix rewrite introduced
+    `DashboardShell`'s nav groups — never caught before because this was the
+    first time `axe-core` ran against a real rendered page in this repo (see
+    finding 2 in this same section: this whole phase is the first live
+    execution of *any* of Phase 13's own new checks). Computed contrast
+    manually to pick the fix rather than guess: `text-ink-subtle`
+    (`#6b7078` light / `#8a8f98` dark) gives 4.98:1 (light) and 6.08:1
+    (dark) against `surface-1` in both themes — comfortably passing where
+    `ink-tertiary` gives 2.99:1 (light, the one axe caught) and 3.43:1
+    (dark, latent and technically also failing, just never exercised since
+    Playwright defaults to light rendering with no explicit `colorScheme`
+    set). Fixed by changing that one label's class from `text-ink-tertiary`
+    to `text-ink-subtle` in `DashboardShell.tsx` — no other element used
+    `ink-tertiary` for text content (`EmptyState`'s icon and `TextField`'s
+    placeholder also use it, but axe's `color-contrast` rule only evaluates
+    text nodes, not icons or placeholder pseudo-elements, so neither was
+    flagged and neither was touched). The tell for next time: a color-token
+    ladder with more steps than accessibility-safe options invites exactly
+    this mistake — `ink-tertiary` reads as "the next step down from
+    ink-subtle" in the token list, but nothing in `DESIGN.md` marks it as
+    unsafe for text-on-surface-1; any future use of the two dimmest ink
+    tokens for actual copy (not disabled/decorative use) should get its
+    contrast ratio checked against the specific background it sits on
+    before shipping, not assumed safe by token-ladder position.
+17. **A ninth bug, in the smoke spec itself, surfaced once the a11y fix let
+    the journey progress into the fulfillment step**: `providerPage
+    .getByText('shipped')` matched 2 elements — `ProviderOrdersPage`'s
+    read-only `StatusBadge` span showing the persisted `fulfillment_status`,
+    **and** the "Fulfillment status" `SelectField`'s own `<option
+    value="shipped">shipped</option>`, which exists in the DOM (and is
+    text-matchable by Playwright) regardless of whether the native
+    `<select>` is open. Fixed by scoping the assertion to
+    `providerPage.locator('span').filter({ hasText: 'shipped' })` — matches
+    only the badge, not the option, since `<option>` elements aren't
+    `<span>`s. The brand-side equivalent assertion (`ShopifyOrdersPage`,
+    line 74) didn't need the same fix — that page is read-only, with no
+    `<select>` anywhere, so its `StatusBadge` is the only element containing
+    "shipped" at all. The tell for next time: any page pairing a live
+    `<select>` of status options with a separate read-only badge showing
+    the *current* status is a latent `getByText` collision the moment the
+    badge's text matches one of the select's option values — scope the
+    locator to an element type/role the option can't also match, don't
+    assume a plain text match is unique just because it reads that way in
+    the rendered page.
+18. **A tenth bug, and a second real accessibility finding — this time from
+    the first `visual.spec.ts` route that actually renders a `success`-toned
+    `StatusBadge`** (`/brand/shopify/orders`, scanning an order row with a
+    resolved SKU): `text-success` on `bg-success/10` measured 3.89:1 in the
+    light theme, again failing WCAG 2 AA's 4.5:1 floor. Computed the ceiling
+    before picking a fix: light theme's `--color-success` (`#1a8a3a`) tops
+    out at only **4.43:1 against pure white** — below 4.5:1 even with zero
+    background tint — so no amount of adjusting the badge's `/10` opacity
+    could fix this while keeping the same text color; the token itself had
+    to get darker. Swept opacity from 20% down to 1% to confirm this (lower
+    opacity paradoxically *increases* contrast here, since text and tint
+    share the same base hue and converge toward each other as opacity
+    rises) — even at 1% the ceiling was 4.38:1, still short. Darkened
+    `--color-success` to `#177c34` (light theme only; dark theme's `#27a644`
+    already passed at 5.64:1 against its own tint) — the new color's own
+    10%-tint composite yields 4.62:1. While computing this, found the same
+    latent defect in `--color-error` (`#d13438`), unexercised only because
+    no `visual.spec.ts` route yet renders an `error`-toned badge (light
+    theme, 10%-tint composite: 4.26:1) — fixed proactively to `#c63135`
+    (10%-tint composite: 4.62:1) rather than waiting for a future CI run to
+    surface it separately, same as `ink-tertiary`'s dark-theme case in
+    finding 16. Both changes are CSS-variable-only (`app/src/index.css`'s
+    light `@media` block) — `grep` confirmed `text-success`/`bg-success` and
+    `text-error`/`bg-error` are used nowhere else in `app/src`, so neither
+    change has any other call site to consider. `DESIGN.md`'s color table
+    and Known Gaps section updated to match. **Separately noted, not
+    fixed**: `DESIGN.md`'s own `status-badge` component spec says a status
+    tint should "override text color only, never the pill's bg" — the
+    actual `StatusBadge.tsx` implementation uses `bg-{tone}/10` for
+    success/error, which is a pre-existing drift from that documented
+    pattern. Out of scope for this bug fix (changing the structural
+    bg-vs-text pattern is a design decision, not an accessibility
+    requirement — the darkened tokens already make the *current* pattern
+    compliant), but worth resolving as an explicit design-system cleanup
+    later. The tell for next time: when a color fails contrast against its
+    *tinted* background, check its contrast against the *lightest possible*
+    background (pure white/canvas) before concluding a tint-opacity tweak
+    can fix it — if the ceiling itself is below the threshold, only a
+    darker (or lighter, in dark mode) base color closes the gap.
+19. **An eleventh bug — a real test-isolation race, surfaced only once every
+    prior finding was fixed and the suite ran far enough to reach it**: the
+    baseline-bootstrap run's *own* re-run (after GitHub's `action_required`
+    approval gate — see below) failed with a genuine pixel diff on
+    `/provider/orders` (5228 pixels, ratio 0.02, over the 0.01 threshold) —
+    not a missing-baseline error this time, an actual mismatch against the
+    just-committed baseline. Root cause: `smoke.spec.ts` and
+    `visual.spec.ts` share the exact same brand/provider/order fixtures
+    seeded once by `global-setup.ts`, and `smoke.spec.ts` actively mutates
+    the seeded order's `fulfillment_status`/`tracking_number` (its own
+    journey's last step) — the same order `visual.spec.ts`'s
+    `/provider/orders` scan reads read-only. `playwright.config.ts` had
+    `fullyParallel: true` with no `workers` override, so the CI runner
+    picked its own default (2, per the run's own "Running 28 tests using 2
+    workers" log line) — with no ordering guarantee between the two spec
+    files, whether the screenshot captures the order *before* or *after*
+    smoke's mutation is non-deterministic, and the just-generated baseline
+    happened to capture one ordering while this re-run's fresh worker
+    scheduling captured the other. Fixed by setting `workers:
+    process.env.CI ? 1 : undefined` — forces fully serial execution in CI,
+    the simplest correct fix for a suite with shared mutable fixture state
+    (the alternative — giving `visual.spec.ts` its own isolated order
+    fixture, or wrapping each spec file's state in a transaction — is a
+    real e2e-architecture improvement but out of scope for closing out this
+    phase; noted as a candidate for a future hardening pass). The tell for
+    next time, and the one this whole phase keeps re-teaching: a test suite
+    with fixtures shared and mutated across spec files is only as
+    deterministic as its execution ordering guarantees — `fullyParallel`
+    plus multiple workers assumes test *isolation*, and the moment two
+    spec files touch the same row, that assumption silently breaks in a
+    way no sandbox without a live multi-worker Playwright run could ever
+    catch. **Correction, found while chasing the follow-up:** `workers: 1`
+    was a real, worthwhile fix (a shared-fixture suite genuinely isn't safe
+    under unordered parallel workers), but it was **not** what actually
+    caused the `/provider/orders` diff, and the first write-up above
+    mis-attributed it. Proof: after `workers: 1` landed, a fresh
+    `workflow_dispatch` bootstrap run — via `pnpm exec playwright test
+    e2e/visual.spec.ts --update-snapshots`, i.e. **`visual.spec.ts` alone**
+    — reported "No baseline changes to commit" (a byte-for-byte match
+    against the existing baseline), while the very next full-suite
+    comparison run, using the exact same code and the exact same serial
+    `workers: 1` ordering, still failed with the *identical* 5228-pixel
+    diff. Two runs, same commit, same ordering, opposite outcomes — that
+    contradiction is what exposed the real bug: **the baseline-generation
+    command and the real comparison command were never equivalent in
+    scope.** `ci.yml`'s comparison step runs `pnpm exec playwright test`
+    (the full suite — `smoke.spec.ts` *and* `visual.spec.ts` together, one
+    `globalSetup`, one dev server), so `smoke.spec.ts`'s mutation of the
+    seeded order's `fulfillment_status`/`tracking_number` always precedes
+    `visual.spec.ts`'s `/provider/orders` screenshot. But the baseline step
+    ran `playwright test e2e/visual.spec.ts --update-snapshots` — a file
+    filter that **excludes `smoke.spec.ts` entirely** — so the committed
+    baseline permanently captured the order's pristine, pre-mutation state.
+    Every real comparison run would forever disagree with it, deterministic
+    ordering or not. Fixed by changing the baseline step to `pnpm exec
+    playwright test --update-snapshots` (no file filter — the same full
+    suite the comparison step runs; `--update-snapshots` is a no-op for
+    `smoke.spec.ts`, which has no screenshot assertions). Deliberately not
+    two sequential `playwright test` invocations (`smoke.spec.ts` then
+    `visual.spec.ts`): each separate invocation re-runs `globalSetup` and
+    tries to start its own dev server, and re-running `globalSetup` a
+    second time in the same job would attempt to sign up the same seeded
+    brand/provider emails again and fail outright. The tell for next time,
+    compounding the one above: when two runs of *supposedly* identical code
+    under *supposedly* identical conditions disagree, don't keep patching
+    the most recent theory — find the one concrete configuration
+    difference between the two commands actually being compared (here: a
+    file-path filter silently narrowing what a "generate the baseline"
+    command exercises versus what "check the baseline" exercises).
+20. **A twelfth, non-bug wrinkle in the CI plumbing itself**: the
+    baseline-bootstrap job's own commit (authored as `github-actions[bot]`
+    via `git config user.name`/`user.email` in the "Generate + commit
+    visual baselines" step) triggered a new `pull_request` "synchronize"
+    check run that came back `action_required` instead of running —
+    GitHub's own safeguard against a bot-authored push auto-running a
+    workflow without a human in the loop, not anything this repo's
+    `ci.yml` did wrong. Resolved by manually re-triggering that specific
+    run (`rerun_workflow_run`) as a human collaborator, which bypasses the
+    gate. Not a recurring landmine to fix in code — future baseline
+    bootstrap runs on this branch will hit the same gate and need the same
+    manual re-run, which is an acceptable, infrequent cost for a path that
+    only exists to seed committed screenshots once.
+
 ## Stack rules
 
 ### TypeScript
@@ -941,7 +1378,20 @@ A change is done when **all** are true:
   it ran in this environment — the pre-installed Chromium build (`/opt/pw-browsers`, pinned
   build 1194) didn't match what the installed `@playwright/test` version expected (build 1228).
   Fixed by passing `executablePath: '/opt/pw-browsers/chromium'` explicitly instead of letting
-  Playwright resolve its own expected bundled browser.
+  Playwright resolve its own expected bundled browser. Phase 13's root `playwright.config.ts`
+  hit the exact same mismatch (this sandbox has `chromium`/`chromium-1194`/
+  `chromium_headless_shell-1194`, not whatever build the installed `@playwright/test` version
+  expects) — rather than hardcode this sandbox's path into a file every environment (including
+  CI, which installs its own exactly-matched browser via `playwright install --with-deps
+  chromium`) shares, `playwright.config.ts` reads an optional
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` env var and only overrides `launchOptions.executablePath`
+  when it's set. Verified end-to-end in this sandbox via
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium pnpm exec playwright test
+  e2e/visual.spec.ts --update-snapshots` against the two fixture-independent unauthenticated
+  routes (`/sign-up`, `/sign-in`) — real browser launch, real navigation, real screenshot
+  capture, and the axe-core accessibility scan all passed cleanly (zero WCAG violations) before
+  the generated snapshots were deleted again (committed baselines must come from CI's Linux
+  runner, never this sandbox, per TESTING.md).
 - Assumed an RLS-blocked cross-user `UPDATE` would raise an error; per Supabase's own security
   guidance (and confirmed while writing `supabase/tests/profiles_rls.test.sql`) it instead
   silently matches zero rows (`UPDATE` requires a `SELECT`-visible row first). Test for the row
@@ -1131,6 +1581,42 @@ A change is done when **all** are true:
   manual discipline — the tell for next time: when starting recon on a phase, diff
   `supabase/migrations/` against this file's own header comment (which lists every
   migration it claims to reflect) rather than assuming it's current.
+- **Root-level `.ts` files run as ESM (`package.json`'s `"type": "module"`), so
+  `__dirname`/`__filename` don't exist** — `playwright.config.ts` and every `e2e/*.ts` file
+  hit `ReferenceError: __dirname is not defined` the first time this repo had TypeScript
+  files living at the repo root instead of inside `app/`/`worker/` (Vite/Vitest's own
+  config already avoided this problem, since neither ever used `__dirname`). Fixed with
+  `path.dirname(fileURLToPath(import.meta.url))` everywhere a directory-relative path was
+  needed. Caught by `pnpm exec playwright test --list`, which parses every spec file
+  without needing a live browser or dev server — the tell for next time: run `--list`
+  as a free, zero-infrastructure sanity check on any new root-level `.ts`/`.mts` file
+  before assuming Node's classic CJS globals are available.
+- **`test.skip(condition, reason)` called inside a Playwright test body is too late to
+  prevent that test's own fixtures from being created** — `e2e/smoke.spec.ts`'s original
+  shape called `test.skip(!hasFixtures, ...)` as the first line inside `test('...', async
+  ({ browser }) => { ... })`, but Playwright resolves every fixture a test declares
+  (`browser` here) *before* invoking the test callback body at all, so the skip check
+  never got a chance to run before the browser launch attempt — which then failed for an
+  unrelated reason (this sandbox's Playwright browser-version mismatch, see the
+  `scripts/eyes.mjs` entry above) and looked like a real bug rather than a skip-timing
+  bug. `e2e/visual.spec.ts`'s brand/provider/admin route groups got this right from the
+  start by calling `test.skip()` at the `test.describe()` level (which Playwright *does*
+  evaluate before creating any fixtures for tests inside that block) — `smoke.spec.ts`
+  was fixed to wrap its single test in the same describe-level pattern. The tell for next
+  time: any conditional skip that depends on external state (a missing fixture file, a
+  missing env var) belongs at the `describe`/suite level, never inside a test callback
+  that declares fixtures needing real setup (`browser`, `page`, `context`).
+- **This repo's RLS/pgTAP tests had never executed against a live Postgres before Phase
+  13** — every prior phase's own CLAUDE.md write-up says "written, not yet executed"
+  and meant it literally; this sandbox has no Docker (see the network-limitation
+  landmine below), so nothing before this phase could actually run `supabase test db`.
+  One of the two real bugs the Phase 13 RLS audit found (`warehouses_rls.test.sql`
+  declaring `plan(20)` for 19 real assertions) would have failed on the very first
+  execution, silently sitting undetected for nine phases. The tell for next time: a
+  `grep -c` audit of `select plan(N)` vs. actual `select (is|throws_like|lives_ok)(`
+  call counts across every `supabase/tests/*.sql` file takes seconds and catches this
+  whole class of bug without needing a live database at all — worth running any time
+  a new RLS test file is added, not just during a dedicated hardening phase.
 
 ## Overrides
 
