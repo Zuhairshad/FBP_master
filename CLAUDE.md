@@ -939,6 +939,15 @@ A change is done when **all** are true:
   like "separate" or "own folder," confirm the exact directory depth and
   scope intended before executing — a folder-structure change is cheap to
   redo once, expensive to redo twice.
+- **The earlier "no live DB reachable" sandbox landmine (above) does not hold in every
+  session.** In a later Claude Code Remote environment, `worker/.dev.vars` was populated
+  with the real hosted project's (`uegezmxijsugfsdaugie`) `SUPABASE_URL` +
+  `SUPABASE_SERVICE_ROLE_KEY`, `pnpm dev:worker` (`wrangler dev`) started cleanly, and
+  both a real GoTrue call (`auth.getUser` via `/shopify/status`, correctly rejecting a
+  bogus bearer token with 401) and a direct REST query against `shopify_tokens` (200,
+  confirming Phase 5+ migrations are live in the hosted project) succeeded. Confirms the
+  original entry's own caveat: the block was this specific sandbox's proxy policy, not a
+  property of the repo — check actual connectivity per-session before assuming either way.
 
 ## Overrides
 
