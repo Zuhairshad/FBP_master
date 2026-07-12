@@ -49,3 +49,15 @@ compatibility_flags = ["nodejs_compat"]
 # sync freshness; cheap to tighten or loosen later — this is the only
 # cron entry, so every platform currently syncs on the same cadence).
 crons = ["*/15 * * * *"]
+
+# Phase 14 (Deployment): master = staging, main = production, one shared
+# Supabase project for both (see CLAUDE.md's Branching & deployment model).
+# The top-level config above (name = "fbp-worker") IS production — deployed
+# via `wrangler deploy` with no --env flag on push to main. This override is
+# the only difference staging needs: a distinct Worker name so the two don't
+# collide on the same script. Same bindings/secrets/cron either way, since
+# both point at the same Supabase project — `wrangler secret put <NAME> --env
+# staging` needs running once against this env too (secrets are NOT shared
+# between a base config and a named [env.*] block in Wrangler).
+[env.staging]
+name = "fbp-worker-staging"
