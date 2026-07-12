@@ -599,7 +599,28 @@ deployment model for the accepted risk this implies). CI-side wiring is done
 `worker/wrangler.toml`'s `[env.staging]`); what's left is one-time,
 account-level setup only the Cloudflare account holder can do (below).
 
-**Blocked on:** the one-time Cloudflare account provisioning — no custom
+**IMMEDIATE NEXT STEP (start here on session resume):** the client wants to
+locally test the app against the real hosted Supabase project
+(`uegezmxijsugfsdaugie`, already fully migrated — see the entry below and
+CLAUDE.md's Landmines) before Cloudflare is even set up, so real marketplace
+credentials can be tried against real data as soon as they arrive. This
+needs the project's **`service_role` key** (Project Settings → API →
+`service_role` secret — different from the anon/publishable key already in
+`app/.env.local`, and different from the Personal Access Token used earlier
+to run migrations). The client said they'd add it as an env var on this
+Claude Code Remote environment (named "Soundsaver" — see CLAUDE.md's
+Landmines for why that name doesn't match this repo) via a **new session**,
+since env vars set on an environment only apply to sessions started after
+they're added, not one already running. On resume: check the shell for a
+Supabase service-role key env var; if present, write `SUPABASE_URL` +
+`SUPABASE_SERVICE_ROLE_KEY` into `worker/.dev.vars` (gitignored, copy the
+rest of the template from `worker/.dev.vars.example`) so `pnpm dev:worker`
+runs against the real project instead of local Docker Postgres. No
+marketplace credentials exist yet — those get added the same way
+(`worker/.dev.vars` locally, `wrangler secret put` once deployed) as soon as
+the client has them, one platform at a time, tested via each `*ConnectPage`.
+
+**Separately blocked on:** the one-time Cloudflare account provisioning — no custom
 domain needed yet (default `*.pages.dev`/`*.workers.dev` subdomains, client
 decision), so this is no longer blocked on DNS, just on:
 - [ ] Create the Cloudflare Pages project (`wrangler pages project create

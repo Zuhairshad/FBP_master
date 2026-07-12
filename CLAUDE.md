@@ -1459,6 +1459,27 @@ A change is done when **all** are true:
   `statements` column content, which was deliberately left empty here rather than faithfully
   reconstructed) was never exercised against this hand-built table. Revisit if a future `db push`
   ever tries to reapply something already-applied via this path.
+- **This coding sandbox's Claude Code Remote environment is named "Soundsaver"**, not
+  "FBP_master" — confirmed via `list_environments` (only one environment exists on this account,
+  `env_01U9BhBzcpGSTVUkdAvB8rp9`, `name: "Soundsaver"`). It's a coincidence of environment reuse,
+  not a sign anything is wrong: the client has a separate, real "Soundsaver-" Supabase project
+  (`nqftrrtibwtmygmkrrcz`) unrelated to this repo, and appears to have set up this Claude Code
+  Remote environment for that project first, then pointed it at this FBP_master repo later rather
+  than creating a second environment. This caused real confusion earlier in the Phase 14 session
+  (the client believed a migration had run successfully in "this session" against a project that
+  turned out to be Soundsaver's, not FBP_master's) — if a future session hits similar confusion
+  about "which project a past action targeted," check the project `ref`/name returned by whatever
+  API call actually ran, never assume it matches the repo just because they share an environment.
+- **Environment-level env vars (Claude Code Remote environment settings, distinct from this
+  repo's own `.env`/`.dev.vars` files) only apply to a session's shell when that session's
+  container starts — not retroactively into a session that's already running.** Confirmed
+  empirically: the client added a Supabase key via this environment's settings mid-session, and
+  `env | grep -i supabase` in the already-running session stayed empty. The fix is simply a new
+  session, not a bug to chase. **Standing next step, until done:** check a new session's shell
+  for a Supabase `service_role` key on resume — see ROADMAP.md's Phase 14 "IMMEDIATE NEXT STEP"
+  for exactly what to do with it once found (`worker/.dev.vars` doesn't exist in this repo yet;
+  it needs `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` before `pnpm dev:worker` can run against
+  the real hosted project instead of local Docker Postgres).
 - `scripts/eyes.mjs`'s `chromium.launch()` failed with "Executable doesn't exist" the first time
   it ran in this environment — the pre-installed Chromium build (`/opt/pw-browsers`, pinned
   build 1194) didn't match what the installed `@playwright/test` version expected (build 1228).
