@@ -620,10 +620,16 @@ decision), so this is no longer blocked on DNS, just on:
       exercises them
 - [ ] Production secrets via `wrangler secret put` (never in `wrangler.toml`)
       — mechanism exists, actual secret values are the one-time step above
-- [ ] Supabase: promote/point to production project, confirm RLS is on for every table
-      in prod (not just local) — **N/A under the shared-project decision**: there
-      is no separate production project to promote to; RLS is already
-      verified against the one real Postgres this repo has (Phase 13's CI)
+- [x] Supabase: promote/point to production project, confirm RLS is on for every table
+      in prod (not just local) — **N/A under the shared-project decision** for
+      "promote": there is no separate production project to promote to. The
+      confirm-RLS half is now real, not just local: the shared hosted project
+      (`uegezmxijsugfsdaugie`, name "FBP_master") had all 18 migrations applied
+      via the Supabase Management API (`POST /v1/projects/{ref}/database/query`
+      — see CLAUDE.md's Branching & deployment model for why the CLI/`db push`
+      path doesn't work from this sandbox but this one does), and verified
+      directly: all 15 tables present, `pg_class.relrowsecurity = true` on
+      every one, `supabase_migrations.schema_migrations` shows 18/18 recorded
 - [ ] Domain + SSL via Cloudflare once DNS is pointed — deferred, not blocking
       (default subdomains for now, per client decision)
 - [ ] Basic monitoring: Worker error/latency visibility, Supabase logs reviewed
