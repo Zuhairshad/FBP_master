@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router'
-import { EbayOrdersPage } from './EbayOrdersPage'
+import { OrdersPage } from './OrdersPage'
 import { AuthContext } from '../hooks/auth-context'
 import { supabase } from '../lib/supabase'
 import type { Database } from '../types/database'
@@ -13,6 +13,7 @@ vi.mock('../lib/supabase', () => ({
 }))
 
 type PlatformOrder = Database['public']['Tables']['platform_orders']['Row']
+type Profile = Database['public']['Tables']['profiles']['Row']
 type QueryResult = { data: unknown; error: unknown }
 
 interface MockQueryBuilder {
@@ -31,6 +32,13 @@ function makeBuilder(result: QueryResult): MockQueryBuilder {
   return builder
 }
 
+function mockFrom(...results: QueryResult[]) {
+  const mocked = vi.mocked(supabase.from)
+  for (const result of results) {
+    mocked.mockReturnValueOnce(makeBuilder(result) as unknown as ReturnType<typeof supabase.from>)
+  }
+}
+
 function renderWithAuth() {
   return render(
     <MemoryRouter>
@@ -39,30 +47,30 @@ function renderWithAuth() {
           session: null,
           loading: false,
           profile: {
-            id: 'brand-1',
-            role: 'brand',
-            display_name: 'Brand One',
+            id: 'admin-1',
+            role: 'admin',
+            display_name: 'Admin One',
             company_name: null,
             is_active: true,
             created_at: '2026-01-01T00:00:00Z',
           },
         }}
       >
-        <EbayOrdersPage />
+        <OrdersPage />
       </AuthContext.Provider>
     </MemoryRouter>,
   )
 }
 
-describe('EbayOrdersPage', () => {
-  it('lists synced orders with their resolution status, filtered to the ebay platform', async () => {
+describe('admin OrdersPage', () => {
+  it('lists orders across every platform and brand', async () => {
     const orders: PlatformOrder[] = [
       {
         id: 'o1',
         brand_id: 'brand-1',
-        platform: 'ebay',
-        platform_order_id: '01-11111-11111',
-        raw_data: { orderId: '01-11111-11111' },
+        platform: 'shopify',
+        platform_order_id: '1001',
+        raw_data: { id: 1001 },
         resolved_master_sku: 'SKU-001',
         status: 'resolved',
         fulfillment_status: 'pending',
@@ -70,39 +78,23 @@ describe('EbayOrdersPage', () => {
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
       },
+    ]
+    const brands: Profile[] = [
       {
-        id: 'o2',
-        brand_id: 'brand-1',
-        platform: 'ebay',
-        platform_order_id: '01-22222-22222',
-        raw_data: { orderId: '01-22222-22222' },
-        resolved_master_sku: null,
-        status: 'unmapped',
-        fulfillment_status: 'pending',
-        tracking_number: null,
-        created_at: '2026-01-02T00:00:00Z',
-        updated_at: '2026-01-02T00:00:00Z',
+        id: 'brand-1',
+        role: 'brand',
+        display_name: 'Brand One',
+        company_name: 'Widgets Co',
+        is_active: true,
+        created_at: '2026-01-01T00:00:00Z',
       },
     ]
-    const builder = makeBuilder({ data: orders, error: null })
-    vi.mocked(supabase.from).mockReturnValueOnce(builder as unknown as ReturnType<typeof supabase.from>)
+    mockFrom({ data: orders, error: null }, { data: brands, error: null })
 
     renderWithAuth()
 
-    expect(await screen.findByText('#01-11111-11111')).toBeInTheDocument()
-    expect(screen.getByText('SKU-001')).toBeInTheDocument()
-    expect(screen.getByText('#01-22222-22222')).toBeInTheDocument()
-    expect(screen.getByText('unmapped')).toBeInTheDocument()
-    expect(builder.eq).toHaveBeenCalledWith('platform', 'ebay')
-  })
-
-  it('shows an empty state when there are no orders', async () => {
-    vi.mocked(supabase.from).mockReturnValueOnce(
-      makeBuilder({ data: [], error: null }) as unknown as ReturnType<typeof supabase.from>,
-    )
-
-    renderWithAuth()
-
-    expect(await screen.findByText(/No orders yet/)).toBeInTheDocument()
+    expect(await screen.findByText('Widgets Co')).toBeInTheDocument()
+    expect(screen.getByText('shopify')).toBeInTheDocument()
+    expect(screen.getByText('#1001')).toBeInTheDocument()
   })
 })

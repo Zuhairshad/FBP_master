@@ -16,6 +16,11 @@ function statusTone(status: PlatformOrder['status']) {
   return 'neutral'
 }
 
+function fulfillmentTone(status: PlatformOrder['fulfillment_status']) {
+  if (status === 'delivered') return 'success'
+  return 'neutral'
+}
+
 /** Shared order-list view reused by each brand marketplace's thin
  * `*OrdersPage` wrapper (pass `platform` to scope the query) and by
  * `ProviderOrdersPage` (omit `platform`, pass `showBrand` — a provider sees
@@ -98,6 +103,7 @@ export function PlatformOrdersList({
               <TableHead>Order ID</TableHead>
               <TableHead>SKU</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Fulfillment</TableHead>
               <TableHead>Date</TableHead>
             </TableRow>
           </TableHeader>
@@ -114,6 +120,9 @@ export function PlatformOrdersList({
                 <TableCell className="font-mono text-xs">{order.resolved_master_sku ?? '—'}</TableCell>
                 <TableCell>
                   <StatusBadge tone={statusTone(order.status)}>{order.status}</StatusBadge>
+                </TableCell>
+                <TableCell>
+                  <StatusBadge tone={fulfillmentTone(order.fulfillment_status)}>{order.fulfillment_status}</StatusBadge>
                 </TableCell>
                 <TableCell>{new Date(order.created_at).toLocaleDateString()}</TableCell>
               </TableRow>
