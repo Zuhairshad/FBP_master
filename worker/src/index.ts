@@ -36,13 +36,16 @@ import {
 } from './walmart/handlers'
 import type { WalmartWorkerEnv } from './walmart/env'
 import { runScheduledSync } from './scheduledSync'
+import { handleDeactivate as handleAdminDeactivate, handleReactivate as handleAdminReactivate } from './admin/handlers'
+import type { AdminWorkerEnv } from './admin/env'
 
 export interface Env
   extends ShopifyWorkerEnv,
     TiktokWorkerEnv,
     AmazonWorkerEnv,
     EbayWorkerEnv,
-    WalmartWorkerEnv {}
+    WalmartWorkerEnv,
+    AdminWorkerEnv {}
 
 export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
@@ -139,6 +142,14 @@ export default {
 
     if (method === 'POST' && url.pathname === '/walmart/sync') {
       return handleWalmartSync(request, env)
+    }
+
+    const adminUserActionMatch = /^\/admin\/users\/([^/]+)\/(deactivate|reactivate)$/.exec(url.pathname)
+    if (method === 'POST' && adminUserActionMatch) {
+      const [, targetUserId, action] = adminUserActionMatch
+      return action === 'deactivate'
+        ? handleAdminDeactivate(request, env, targetUserId)
+        : handleAdminReactivate(request, env, targetUserId)
     }
 
     return new Response('Not found', { status: 404 })

@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { MemoryRouter, Route, Routes } from 'react-router'
-import { WarehouseDetailPage } from './WarehouseDetailPage'
+import { MemoryRouter } from 'react-router'
+import { AdminBookingsPage } from './BookingsPage'
 import { AuthContext } from '../hooks/auth-context'
 import { supabase } from '../lib/supabase'
 import type { Database } from '../types/database'
@@ -13,15 +13,16 @@ vi.mock('../lib/supabase', () => ({
   },
 }))
 
-type Warehouse = Database['public']['Tables']['warehouses']['Row']
-type WarehouseService = Database['public']['Tables']['warehouse_services']['Row']
+type BookingRequest = Database['public']['Tables']['booking_requests']['Row']
+type Profile = Database['public']['Tables']['profiles']['Row']
 type StorageSpace = Database['public']['Tables']['storage_spaces']['Row']
 type QueryResult = { data: unknown; error: unknown }
 
 interface MockQueryBuilder {
   select: (...args: unknown[]) => MockQueryBuilder
+  order: (...args: unknown[]) => MockQueryBuilder
+  update: (...args: unknown[]) => MockQueryBuilder
   eq: (...args: unknown[]) => MockQueryBuilder
-  insert: (...args: unknown[]) => MockQueryBuilder
   single: (...args: unknown[]) => MockQueryBuilder
   then: (resolve: (value: QueryResult) => void) => void
 }
@@ -29,8 +30,9 @@ interface MockQueryBuilder {
 function makeBuilder(result: QueryResult): MockQueryBuilder {
   const builder = {} as MockQueryBuilder
   builder.select = vi.fn(() => builder)
+  builder.order = vi.fn(() => builder)
+  builder.update = vi.fn(() => builder)
   builder.eq = vi.fn(() => builder)
-  builder.insert = vi.fn(() => builder)
   builder.single = vi.fn(() => builder)
   builder.then = (resolve) => resolve(result)
   return builder
@@ -43,23 +45,31 @@ function mockFrom(...results: QueryResult[]) {
   }
 }
 
-const warehouse: Warehouse = {
-  id: 'w1',
+const booking: BookingRequest = {
+  id: 'b1',
+  brand_id: 'brand-1',
   provider_id: 'provider-1',
-  name: 'Main Warehouse',
-  address_line1: '1 Dock Rd',
-  city: 'Columbus',
-  state: null,
-  postal_code: '43215',
-  country: 'US',
+  storage_space_id: 's1',
+  status: 'pending',
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+}
+
+const brand: Profile = {
+  id: 'brand-1',
+  role: 'brand',
+  display_name: 'Brand One',
+  company_name: 'Widgets Co',
+  is_active: true,
   created_at: '2026-01-01T00:00:00Z',
 }
 
-const service: WarehouseService = {
-  id: 'svc1',
-  warehouse_id: 'w1',
-  name: 'Pick & Pack',
-  description: null,
+const provider: Profile = {
+  id: 'provider-1',
+  role: 'provider',
+  display_name: 'Provider One',
+  company_name: 'Fulfill Co',
+  is_active: true,
   created_at: '2026-01-01T00:00:00Z',
 }
 
@@ -74,53 +84,56 @@ const space: StorageSpace = {
 
 function renderWithAuth() {
   return render(
-    <MemoryRouter initialEntries={['/provider/warehouses/w1']}>
+    <MemoryRouter>
       <AuthContext.Provider
         value={{
           session: null,
           loading: false,
           profile: {
-            id: 'provider-1',
-            role: 'provider',
-            display_name: 'Provider One',
+            id: 'admin-1',
+            role: 'admin',
+            display_name: 'Admin One',
             company_name: null,
             is_active: true,
             created_at: '2026-01-01T00:00:00Z',
           },
         }}
       >
-        <Routes>
-          <Route path="/provider/warehouses/:warehouseId" element={<WarehouseDetailPage />} />
-        </Routes>
+        <AdminBookingsPage />
       </AuthContext.Provider>
     </MemoryRouter>,
   )
 }
 
-describe('WarehouseDetailPage', () => {
-  it('shows the warehouse with its services and storage spaces', async () => {
-    mockFrom({ data: warehouse, error: null }, { data: [service], error: null }, { data: [space], error: null })
+describe('AdminBookingsPage', () => {
+  it('lists every booking across brands and providers', async () => {
+    mockFrom(
+      { data: [booking], error: null },
+      { data: [brand, provider], error: null },
+      { data: [space], error: null },
+    )
 
     renderWithAuth()
 
-    expect(await screen.findAllByText('Main Warehouse')).toHaveLength(2)
-    expect(screen.getByText(/1 Dock Rd/)).toBeInTheDocument()
-    expect(screen.getByText('Pick & Pack')).toBeInTheDocument()
+    expect(await screen.findByText('Widgets Co')).toBeInTheDocument()
+    expect(screen.getByText('Fulfill Co')).toBeInTheDocument()
     expect(screen.getByText('Pallet Rack A')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeInTheDocument()
   })
 
-  it('adds a service from the modal', async () => {
-    mockFrom({ data: warehouse, error: null }, { data: [], error: null }, { data: [], error: null })
-    mockFrom({ data: { ...service, name: 'Kitting' }, error: null })
+  it('rejects a booking', async () => {
+    mockFrom(
+      { data: [booking], error: null },
+      { data: [brand, provider], error: null },
+      { data: [space], error: null },
+    )
+    mockFrom({ data: { ...booking, status: 'rejected' }, error: null })
 
     renderWithAuth()
-    await screen.findByText('No services yet.')
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: /Add service/ }))
-    await user.type(screen.getByLabelText('Name'), 'Kitting')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(await screen.findByRole('button', { name: 'Reject' }))
 
-    expect(await screen.findByText('Kitting')).toBeInTheDocument()
+    expect(await screen.findByText('rejected')).toBeInTheDocument()
   })
 })

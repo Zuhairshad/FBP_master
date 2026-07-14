@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { ShopifyOrderDetailPage } from './ShopifyOrderDetailPage'
+import { OrderDetailPage } from './OrderDetailPage'
 import { AuthContext } from '../hooks/auth-context'
 import { supabase } from '../lib/supabase'
 import type { Database } from '../types/database'
@@ -13,6 +13,7 @@ vi.mock('../lib/supabase', () => ({
 }))
 
 type PlatformOrder = Database['public']['Tables']['platform_orders']['Row']
+type Profile = Database['public']['Tables']['profiles']['Row']
 type QueryResult = { data: unknown; error: unknown }
 
 interface MockQueryBuilder {
@@ -31,17 +32,24 @@ function makeBuilder(result: QueryResult): MockQueryBuilder {
   return builder
 }
 
+function mockFrom(...results: QueryResult[]) {
+  const mocked = vi.mocked(supabase.from)
+  for (const result of results) {
+    mocked.mockReturnValueOnce(makeBuilder(result) as unknown as ReturnType<typeof supabase.from>)
+  }
+}
+
 function renderWithAuth() {
   return render(
-    <MemoryRouter initialEntries={['/brand/shopify/orders/o1']}>
+    <MemoryRouter initialEntries={['/admin/orders/o1']}>
       <AuthContext.Provider
         value={{
           session: null,
           loading: false,
           profile: {
-            id: 'brand-1',
-            role: 'brand',
-            display_name: 'Brand One',
+            id: 'admin-1',
+            role: 'admin',
+            display_name: 'Admin One',
             company_name: null,
             is_active: true,
             created_at: '2026-01-01T00:00:00Z',
@@ -49,38 +57,44 @@ function renderWithAuth() {
         }}
       >
         <Routes>
-          <Route path="/brand/shopify/orders/:orderId" element={<ShopifyOrderDetailPage />} />
+          <Route path="/admin/orders/:orderId" element={<OrderDetailPage />} />
         </Routes>
       </AuthContext.Provider>
     </MemoryRouter>,
   )
 }
 
-describe('ShopifyOrderDetailPage', () => {
-  it('shows the order status and raw data', async () => {
+describe('admin OrderDetailPage', () => {
+  it('shows the order with its owning brand, no fulfillment edit action', async () => {
     const order: PlatformOrder = {
       id: 'o1',
       brand_id: 'brand-1',
       platform: 'shopify',
       platform_order_id: '1001',
-      raw_data: { order_number: '1001', financial_status: 'paid' },
+      raw_data: { order_number: '1001' },
       resolved_master_sku: 'SKU-001',
       status: 'resolved',
-      fulfillment_status: 'pending',
-      tracking_number: null,
+      fulfillment_status: 'shipped',
+      tracking_number: '1Z999',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     }
-    vi.mocked(supabase.from).mockReturnValueOnce(
-      makeBuilder({ data: order, error: null }) as unknown as ReturnType<typeof supabase.from>,
-    )
+    const brand: Profile = {
+      id: 'brand-1',
+      role: 'brand',
+      display_name: 'Brand One',
+      company_name: 'Widgets Co',
+      is_active: true,
+      created_at: '2026-01-01T00:00:00Z',
+    }
+    mockFrom({ data: order, error: null }, { data: brand, error: null })
 
     renderWithAuth()
 
     expect(await screen.findByText('#1001')).toBeInTheDocument()
-    expect(screen.getByText('resolved')).toBeInTheDocument()
-    expect(screen.getByText(/Resolved to master SKU: SKU-001/)).toBeInTheDocument()
-    expect(screen.getByText('order_number')).toBeInTheDocument()
-    expect(screen.getByText('financial_status')).toBeInTheDocument()
+    expect(screen.getByText(/Brand: Widgets Co/)).toBeInTheDocument()
+    expect(screen.getByText('shipped')).toBeInTheDocument()
+    expect(screen.getByText(/Tracking: 1Z999/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Update/ })).not.toBeInTheDocument()
   })
 })
