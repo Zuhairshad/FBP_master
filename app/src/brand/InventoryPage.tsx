@@ -1,13 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { Plus } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { DashboardShell } from '../components/DashboardShell'
 import { Button } from '../components/ui/Button'
-import { Card } from '../components/ui/Card'
 import { TextField } from '../components/ui/TextField'
 import { SelectField } from '../components/ui/SelectField'
 import { ErrorText } from '../components/ui/ErrorText'
 import { EmptyState } from '../components/ui/EmptyState'
-import { ListRow } from '../components/ui/ListRow'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/Table'
+import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogFooter } from '../components/ui/Dialog'
 import type { Database } from '../types/database'
 
 type Product = Database['public']['Tables']['products']['Row']
@@ -21,6 +22,7 @@ export function InventoryPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const [dialogOpen, setDialogOpen] = useState(false)
   const [productId, setProductId] = useState('')
   const [warehouseId, setWarehouseId] = useState('')
   const [quantity, setQuantity] = useState('')
@@ -81,88 +83,107 @@ export function InventoryPage() {
       ...current.filter((row) => !(row.product_id === productId && row.warehouse_id === warehouseId)),
     ])
     setQuantity('')
+    setDialogOpen(false)
   }
 
   return (
-    <DashboardShell title="Inventory">
-      <div className="mx-auto max-w-2xl">
-        <Card>
-          <form onSubmit={(event) => void handleSetInventory(event)}>
-            <h2 className="text-sm font-semibold text-ink">Set inventory level</h2>
-
-            <div className="mt-3">
-              <SelectField label="Product" required value={productId} onChange={(event) => setProductId(event.target.value)}>
-                <option value="" disabled>
-                  Select a product
-                </option>
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.master_sku} — {product.name}
+    <DashboardShell
+      title="Inventory"
+      action={
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button type="button">
+              <Plus className="size-4" />
+              Set inventory
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogTitle>Set inventory level</DialogTitle>
+            <form onSubmit={(event) => void handleSetInventory(event)}>
+              <div className="mt-4">
+                <SelectField label="Product" required value={productId} onChange={(event) => setProductId(event.target.value)}>
+                  <option value="" disabled>
+                    Select a product
                   </option>
-                ))}
-              </SelectField>
-            </div>
-
-            <div className="mt-3">
-              <SelectField
-                label="Warehouse"
-                required
-                value={warehouseId}
-                onChange={(event) => setWarehouseId(event.target.value)}
-              >
-                <option value="" disabled>
-                  Select a warehouse
-                </option>
-                {warehouses.map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name}
-                  </option>
-                ))}
-              </SelectField>
-            </div>
-
-            <div className="mt-3">
-              <TextField
-                label="Quantity"
-                type="number"
-                required
-                min={0}
-                value={quantity}
-                onChange={(event) => setQuantity(event.target.value)}
-              />
-            </div>
-
-            {error && (
-              <div className="mt-3">
-                <ErrorText>{error}</ErrorText>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.master_sku} — {product.name}
+                    </option>
+                  ))}
+                </SelectField>
               </div>
-            )}
 
-            <div className="mt-4">
-              <Button type="submit" disabled={submitting} className="w-full">
-                {submitting ? 'Saving…' : 'Save inventory level'}
-              </Button>
-            </div>
-          </form>
-        </Card>
+              <div className="mt-3">
+                <SelectField
+                  label="Warehouse"
+                  required
+                  value={warehouseId}
+                  onChange={(event) => setWarehouseId(event.target.value)}
+                >
+                  <option value="" disabled>
+                    Select a warehouse
+                  </option>
+                  {warehouses.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>
+                      {warehouse.name}
+                    </option>
+                  ))}
+                </SelectField>
+              </div>
 
-        <ul className="mt-6 space-y-2">
-          {loading && <li><EmptyState>Loading inventory…</EmptyState></li>}
-          {!loading && inventory.length === 0 && <li><EmptyState>No inventory set yet.</EmptyState></li>}
-          {inventory.map((row) => {
-            const product = products.find((p) => p.id === row.product_id)
-            const warehouse = warehouses.find((w) => w.id === row.warehouse_id)
-            return (
-              <ListRow key={row.id}>
-                <span className="text-ink-muted">
-                  {product?.name ?? 'Unknown product'} @ {warehouse?.name ?? 'Unknown warehouse'}
-                </span>
-                <span className="font-medium text-ink">{row.quantity}</span>
-              </ListRow>
-            )
-          })}
-        </ul>
-      </div>
+              <div className="mt-3">
+                <TextField
+                  label="Quantity"
+                  type="number"
+                  required
+                  min={0}
+                  value={quantity}
+                  onChange={(event) => setQuantity(event.target.value)}
+                />
+              </div>
+
+              {error && (
+                <div className="mt-3">
+                  <ErrorText>{error}</ErrorText>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? 'Saving…' : 'Save inventory level'}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      }
+    >
+      {loading && <EmptyState>Loading inventory…</EmptyState>}
+      {!loading && inventory.length === 0 && <EmptyState>No inventory set yet.</EmptyState>}
+      {!loading && inventory.length > 0 && (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Product</TableHead>
+              <TableHead>Warehouse</TableHead>
+              <TableHead>Quantity</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {inventory.map((row) => {
+              const product = products.find((p) => p.id === row.product_id)
+              const warehouse = warehouses.find((w) => w.id === row.warehouse_id)
+              return (
+                <TableRow key={row.id}>
+                  <TableCell>{product ? `${product.master_sku} — ${product.name}` : 'Unknown product'}</TableCell>
+                  <TableCell>{warehouse?.name ?? 'Unknown warehouse'}</TableCell>
+                  <TableCell className="font-medium text-ink">{row.quantity}</TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      )}
     </DashboardShell>
   )
 }

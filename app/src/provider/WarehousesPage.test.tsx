@@ -115,6 +115,7 @@ describe('WarehousesPage', () => {
     await screen.findByText('No warehouses yet.')
 
     const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /New warehouse/ }))
     await user.type(screen.getByLabelText('Name'), 'New Warehouse')
     await user.type(screen.getByLabelText('Address'), '2 Dock Rd')
     await user.type(screen.getByLabelText('City'), 'Columbus')

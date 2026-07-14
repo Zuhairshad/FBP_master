@@ -105,6 +105,7 @@ describe('ProductsPage', () => {
     await screen.findByText('No products yet.')
 
     const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /New product/ }))
     await user.type(screen.getByLabelText('Master SKU'), 'SKU-002')
     await user.type(screen.getByLabelText('Name'), 'Gadget')
     await user.click(screen.getByRole('button', { name: 'Add product' }))

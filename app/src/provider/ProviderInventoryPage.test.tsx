@@ -91,7 +91,8 @@ describe('ProviderInventoryPage', () => {
 
     renderWithAuth()
 
-    expect(await screen.findByText(/SKU-001 — Widget @ Main Warehouse/)).toBeInTheDocument()
+    expect(await screen.findByText('SKU-001 — Widget')).toBeInTheDocument()
+    expect(screen.getByText('Main Warehouse')).toBeInTheDocument()
     expect(screen.getByText('25')).toBeInTheDocument()
   })
 

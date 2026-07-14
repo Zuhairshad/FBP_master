@@ -71,7 +71,7 @@ describe('WalmartConnectPage', () => {
         clientSecret: 'my-client-secret',
       })
     })
-    expect(await screen.findByText('Walmart seller account connected.')).toBeInTheDocument()
+    expect(await screen.findByText('Connected')).toBeInTheDocument()
   })
 
   it('shows connection status and syncs on demand when already connected', async () => {
@@ -83,7 +83,7 @@ describe('WalmartConnectPage', () => {
 
     renderWithAuth()
 
-    expect(await screen.findByText('Walmart seller account connected.')).toBeInTheDocument()
+    expect(await screen.findByText('Connected')).toBeInTheDocument()
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Sync now' }))

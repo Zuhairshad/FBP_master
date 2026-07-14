@@ -82,9 +82,9 @@ describe('EbayOrdersPage', () => {
 
     renderWithAuth()
 
-    expect(await screen.findByText('ebay #01-11111-11111')).toBeInTheDocument()
+    expect(await screen.findByText('#01-11111-11111')).toBeInTheDocument()
     expect(screen.getByText('SKU-001')).toBeInTheDocument()
-    expect(screen.getByText('ebay #01-22222-22222')).toBeInTheDocument()
+    expect(screen.getByText('#01-22222-22222')).toBeInTheDocument()
     expect(screen.getByText('unmapped')).toBeInTheDocument()
     expect(builder.eq).toHaveBeenCalledWith('platform', 'ebay')
   })

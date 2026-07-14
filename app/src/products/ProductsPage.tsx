@@ -1,12 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { Plus } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { DashboardShell } from '../components/DashboardShell'
 import { Button } from '../components/ui/Button'
-import { Card } from '../components/ui/Card'
 import { TextField } from '../components/ui/TextField'
 import { ErrorText } from '../components/ui/ErrorText'
 import { EmptyState } from '../components/ui/EmptyState'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableRowLink } from '../components/ui/Table'
+import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogFooter } from '../components/ui/Dialog'
 import type { Database } from '../types/database'
 
 type Product = Database['public']['Tables']['products']['Row']
@@ -17,14 +19,11 @@ export function ProductsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const [dialogOpen, setDialogOpen] = useState(false)
   const [masterSku, setMasterSku] = useState('')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [submitting, setSubmitting] = useState(false)
-
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editName, setEditName] = useState('')
-  const [editDescription, setEditDescription] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -78,6 +77,7 @@ export function ProductsPage() {
     setMasterSku('')
     setName('')
     setDescription('')
+    setDialogOpen(false)
   }
 
   async function handleDelete(id: string) {
@@ -90,146 +90,100 @@ export function ProductsPage() {
     setProducts((current) => current.filter((product) => product.id !== id))
   }
 
-  function startEdit(product: Product) {
-    setEditingId(product.id)
-    setEditName(product.name)
-    setEditDescription(product.description ?? '')
-  }
-
-  async function handleSaveEdit(id: string) {
-    setError(null)
-    const { data, error: updateError } = await supabase
-      .from('products')
-      .update({ name: editName, description: editDescription || null })
-      .eq('id', id)
-      .select()
-      .single()
-
-    if (updateError) {
-      setError(updateError.message)
-      return
-    }
-
-    setProducts((current) => current.map((product) => (product.id === id ? data : product)))
-    setEditingId(null)
-  }
-
   return (
-    <DashboardShell title="Products">
-      <div className="mx-auto max-w-2xl">
-        <Card>
-          <form onSubmit={(event) => void handleCreate(event)}>
-            <h2 className="text-sm font-semibold text-ink">Add a product</h2>
-
-            <div className="mt-3">
-              <TextField
-                label="Master SKU"
-                type="text"
-                required
-                value={masterSku}
-                onChange={(event) => setMasterSku(event.target.value)}
-              />
-            </div>
-
-            <div className="mt-3">
-              <TextField
-                label="Name"
-                type="text"
-                required
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </div>
-
-            <div className="mt-3">
-              <TextField
-                label="Description (optional)"
-                type="text"
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-              />
-            </div>
-
-            {error && (
-              <div className="mt-3">
-                <ErrorText>{error}</ErrorText>
+    <DashboardShell
+      title="Products"
+      action={
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button type="button">
+              <Plus className="size-4" />
+              New product
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogTitle>Add a product</DialogTitle>
+            <form onSubmit={(event) => void handleCreate(event)}>
+              <div className="mt-4">
+                <TextField
+                  label="Master SKU"
+                  type="text"
+                  required
+                  value={masterSku}
+                  onChange={(event) => setMasterSku(event.target.value)}
+                />
               </div>
-            )}
 
-            <div className="mt-4">
-              <Button type="submit" disabled={submitting} className="w-full">
-                {submitting ? 'Adding…' : 'Add product'}
-              </Button>
-            </div>
-          </form>
-        </Card>
+              <div className="mt-3">
+                <TextField
+                  label="Name"
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </div>
 
-        <ul className="mt-6 space-y-3">
-          {loading && <li><EmptyState>Loading products…</EmptyState></li>}
-          {!loading && products.length === 0 && (
-            <li><EmptyState>No products yet.</EmptyState></li>
-          )}
-          {products.map((product) => (
-            <li key={product.id} className="rounded-lg border border-hairline bg-surface-1 p-4">
-              {editingId === product.id ? (
-                <div>
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(event) => setEditName(event.target.value)}
-                    className="w-full rounded-md border border-hairline bg-surface-1 px-2 py-1 text-sm text-ink"
-                  />
-                  <input
-                    type="text"
-                    value={editDescription}
-                    onChange={(event) => setEditDescription(event.target.value)}
-                    className="mt-2 w-full rounded-md border border-hairline bg-surface-1 px-2 py-1 text-sm text-ink"
-                  />
-                  <div className="mt-2 flex gap-2">
-                    <Button
-                      type="button"
-                      variant="primary"
-                      onClick={() => void handleSaveEdit(product.id)}
-                      className="text-xs"
-                    >
-                      Save
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => setEditingId(null)}
-                      className="text-xs"
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-xs text-ink-subtle">{product.master_sku}</p>
-                    <p className="font-medium text-ink">{product.name}</p>
-                    {product.description && <p className="text-sm text-ink-subtle">{product.description}</p>}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="secondary" onClick={() => startEdit(product)} className="text-xs">
-                      Edit
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="danger"
-                      onClick={() => void handleDelete(product.id)}
-                      className="text-xs"
-                    >
-                      Delete
-                    </Button>
-                  </div>
+              <div className="mt-3">
+                <TextField
+                  label="Description (optional)"
+                  type="text"
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                />
+              </div>
+
+              {error && (
+                <div className="mt-3">
+                  <ErrorText>{error}</ErrorText>
                 </div>
               )}
-            </li>
-          ))}
-        </ul>
-      </div>
+
+              <DialogFooter>
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? 'Adding…' : 'Add product'}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      }
+    >
+      {loading && <EmptyState>Loading products…</EmptyState>}
+      {!loading && products.length === 0 && <EmptyState>No products yet.</EmptyState>}
+      {!loading && products.length > 0 && (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Master SKU</TableHead>
+              <TableHead>Name</TableHead>
+              <TableHead>Description</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {products.map((product) => (
+              <TableRow key={product.id} to={`/brand/products/${product.id}`}>
+                <TableCell className="font-mono text-xs text-ink-subtle">{product.master_sku}</TableCell>
+                <TableCell>
+                  <TableRowLink to={`/brand/products/${product.id}`}>{product.name}</TableRowLink>
+                </TableCell>
+                <TableCell>{product.description ?? '—'}</TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    type="button"
+                    variant="danger"
+                    size="sm"
+                    onClick={() => void handleDelete(product.id)}
+                  >
+                    Delete
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
     </DashboardShell>
   )
 }

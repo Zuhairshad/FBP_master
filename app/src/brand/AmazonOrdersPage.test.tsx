@@ -82,9 +82,9 @@ describe('AmazonOrdersPage', () => {
 
     renderWithAuth()
 
-    expect(await screen.findByText('amazon #111-1111111-1111111')).toBeInTheDocument()
+    expect(await screen.findByText('#111-1111111-1111111')).toBeInTheDocument()
     expect(screen.getByText('SKU-001')).toBeInTheDocument()
-    expect(screen.getByText('amazon #222-2222222-2222222')).toBeInTheDocument()
+    expect(screen.getByText('#222-2222222-2222222')).toBeInTheDocument()
     expect(screen.getByText('unmapped')).toBeInTheDocument()
     expect(builder.eq).toHaveBeenCalledWith('platform', 'amazon')
   })

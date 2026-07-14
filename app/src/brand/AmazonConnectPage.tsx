@@ -3,10 +3,12 @@ import { useAuth } from '../hooks/useAuth'
 import { DashboardShell } from '../components/DashboardShell'
 import { connectAmazon, getAmazonStatus, triggerAmazonSync } from '../lib/worker'
 import type { AmazonStatus } from '../lib/worker'
+import { Package2, Clock } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { TextField } from '../components/ui/TextField'
 import { ErrorText } from '../components/ui/ErrorText'
 import { EmptyState } from '../components/ui/EmptyState'
+import { StatTile } from '../components/ui/StatTile'
 
 export function AmazonConnectPage() {
   const { session } = useAuth()
@@ -82,11 +84,11 @@ export function AmazonConnectPage() {
         {loading && <EmptyState>Loading connection status…</EmptyState>}
 
         {!loading && status?.connected && (
-          <div className="space-y-3">
-            <p className="text-sm text-ink-muted">
-              Connected to marketplace <span className="font-medium text-ink">{status.marketplaceId}</span>
-            </p>
-            <p className="text-sm text-ink-subtle">Last synced: {status.lastSyncedAt ?? 'never'}</p>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <StatTile label="Marketplace ID" value={status.marketplaceId ?? '—'} icon={Package2} />
+              <StatTile label="Last synced" value={status.lastSyncedAt ?? 'Never'} icon={Clock} />
+            </div>
             <Button type="button" variant="secondary" disabled={syncing} onClick={() => void handleSync()}>
               {syncing ? 'Syncing…' : 'Sync now'}
             </Button>

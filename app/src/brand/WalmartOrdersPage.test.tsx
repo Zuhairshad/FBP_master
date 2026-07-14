@@ -82,9 +82,9 @@ describe('WalmartOrdersPage', () => {
 
     renderWithAuth()
 
-    expect(await screen.findByText('walmart #1111111111111')).toBeInTheDocument()
+    expect(await screen.findByText('#1111111111111')).toBeInTheDocument()
     expect(screen.getByText('SKU-001')).toBeInTheDocument()
-    expect(screen.getByText('walmart #2222222222222')).toBeInTheDocument()
+    expect(screen.getByText('#2222222222222')).toBeInTheDocument()
     expect(screen.getByText('unmapped')).toBeInTheDocument()
     expect(builder.eq).toHaveBeenCalledWith('platform', 'walmart')
   })

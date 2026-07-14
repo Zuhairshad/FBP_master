@@ -86,7 +86,9 @@ describe('ProviderOrdersPage', () => {
 
     renderWithAuth()
 
-    expect(await screen.findByText(/Brand One Co — shopify #1001/)).toBeInTheDocument()
+    expect(await screen.findByText('Brand One Co')).toBeInTheDocument()
+    expect(screen.getByText('shopify')).toBeInTheDocument()
+    expect(screen.getByText('#1001')).toBeInTheDocument()
   })
 
   it('shows an empty state when no orders are visible yet', async () => {
