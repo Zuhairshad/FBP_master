@@ -93,7 +93,7 @@ describe('SkuMappingsPage', () => {
 
     const skuElement = await screen.findByText('AMZ-001')
     expect(skuElement).toBeInTheDocument()
-    expect(skuElement.closest('li')).toHaveTextContent('SKU-001 — Widget')
+    expect(skuElement.closest('tr')).toHaveTextContent('SKU-001 — Widget')
   })
 
   it('creates a SKU mapping from the form', async () => {
@@ -120,6 +120,7 @@ describe('SkuMappingsPage', () => {
     await screen.findByText('No SKU mappings yet.')
 
     const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /New mapping/ }))
     await user.type(screen.getByLabelText('Platform SKU'), 'AMZ-002')
     await user.click(screen.getByRole('button', { name: 'Add mapping' }))
 

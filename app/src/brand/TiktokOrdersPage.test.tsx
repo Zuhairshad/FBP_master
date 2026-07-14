@@ -82,9 +82,9 @@ describe('TiktokOrdersPage', () => {
 
     renderWithAuth()
 
-    expect(await screen.findByText('tiktok #1001')).toBeInTheDocument()
+    expect(await screen.findByText('#1001')).toBeInTheDocument()
     expect(screen.getByText('SKU-001')).toBeInTheDocument()
-    expect(screen.getByText('tiktok #1002')).toBeInTheDocument()
+    expect(screen.getByText('#1002')).toBeInTheDocument()
     expect(screen.getByText('unmapped')).toBeInTheDocument()
     expect(builder.eq).toHaveBeenCalledWith('platform', 'tiktok')
   })

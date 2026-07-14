@@ -107,7 +107,8 @@ describe('InventoryPage', () => {
 
     renderWithAuth()
 
-    expect(await screen.findByText(/Widget @ Main Warehouse/)).toBeInTheDocument()
+    expect(await screen.findByText('SKU-001 — Widget')).toBeInTheDocument()
+    expect(screen.getByText('Main Warehouse')).toBeInTheDocument()
     expect(screen.getByText('25')).toBeInTheDocument()
   })
 
@@ -131,11 +132,13 @@ describe('InventoryPage', () => {
     await screen.findByText('No inventory set yet.')
 
     const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /Set inventory/ }))
     await user.selectOptions(screen.getByLabelText('Product'), 'p1')
     await user.selectOptions(screen.getByLabelText('Warehouse'), 'w1')
     await user.type(screen.getByLabelText('Quantity'), '10')
     await user.click(screen.getByRole('button', { name: 'Save inventory level' }))
 
-    expect(await screen.findByText(/Widget @ Main Warehouse/)).toBeInTheDocument()
+    expect(await screen.findByText('SKU-001 — Widget')).toBeInTheDocument()
+    expect(screen.getByText('Main Warehouse')).toBeInTheDocument()
   })
 })

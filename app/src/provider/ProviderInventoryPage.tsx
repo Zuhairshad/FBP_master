@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { DashboardShell } from '../components/DashboardShell'
 import { ErrorText } from '../components/ui/ErrorText'
 import { EmptyState } from '../components/ui/EmptyState'
-import { ListRow } from '../components/ui/ListRow'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/Table'
 import type { Database } from '../types/database'
 
 type Product = Database['public']['Tables']['products']['Row']
@@ -48,33 +48,39 @@ export function ProviderInventoryPage() {
 
   return (
     <DashboardShell title="Brand Inventory">
-      <div className="mx-auto max-w-2xl">
-        {error && (
-          <div className="mb-4">
-            <ErrorText>{error}</ErrorText>
-          </div>
-        )}
-        {loading && <EmptyState>Loading inventory…</EmptyState>}
-        {!loading && inventory.length === 0 && (
-          <EmptyState>No inventory visible yet — this fills in once you approve a booking request.</EmptyState>
-        )}
-
-        <ul className="space-y-2">
-          {inventory.map((row) => {
-            const product = products.find((p) => p.id === row.product_id)
-            const warehouse = warehouses.find((w) => w.id === row.warehouse_id)
-            return (
-              <ListRow key={row.id}>
-                <span className="text-ink-muted">
-                  {product ? `${product.master_sku} — ${product.name}` : 'Unknown product'} @{' '}
-                  {warehouse?.name ?? 'Unknown warehouse'}
-                </span>
-                <span className="font-medium text-ink">{row.quantity}</span>
-              </ListRow>
-            )
-          })}
-        </ul>
-      </div>
+      {error && (
+        <div className="mb-4">
+          <ErrorText>{error}</ErrorText>
+        </div>
+      )}
+      {loading && <EmptyState>Loading inventory…</EmptyState>}
+      {!loading && inventory.length === 0 && (
+        <EmptyState>No inventory visible yet — this fills in once you approve a booking request.</EmptyState>
+      )}
+      {!loading && inventory.length > 0 && (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Product</TableHead>
+              <TableHead>Warehouse</TableHead>
+              <TableHead>Quantity</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {inventory.map((row) => {
+              const product = products.find((p) => p.id === row.product_id)
+              const warehouse = warehouses.find((w) => w.id === row.warehouse_id)
+              return (
+                <TableRow key={row.id}>
+                  <TableCell>{product ? `${product.master_sku} — ${product.name}` : 'Unknown product'}</TableCell>
+                  <TableCell>{warehouse?.name ?? 'Unknown warehouse'}</TableCell>
+                  <TableCell className="font-medium text-ink">{row.quantity}</TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      )}
     </DashboardShell>
   )
 }

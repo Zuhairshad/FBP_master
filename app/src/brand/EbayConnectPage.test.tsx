@@ -86,7 +86,7 @@ describe('EbayConnectPage', () => {
 
     renderWithAuth()
 
-    expect(await screen.findByText('eBay seller account connected.')).toBeInTheDocument()
+    expect(await screen.findByText('Connected')).toBeInTheDocument()
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Sync now' }))

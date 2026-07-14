@@ -3,9 +3,11 @@ import { useAuth } from '../hooks/useAuth'
 import { DashboardShell } from '../components/DashboardShell'
 import { getEbayStatus, requestEbayInstallUrl, triggerEbaySync } from '../lib/worker'
 import type { EbayStatus } from '../lib/worker'
+import { Gavel, Clock } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { ErrorText } from '../components/ui/ErrorText'
 import { EmptyState } from '../components/ui/EmptyState'
+import { StatTile } from '../components/ui/StatTile'
 
 export function EbayConnectPage() {
   const { session } = useAuth()
@@ -77,9 +79,11 @@ export function EbayConnectPage() {
         {loading && <EmptyState>Loading connection status…</EmptyState>}
 
         {!loading && status?.connected && (
-          <div className="space-y-3">
-            <p className="text-sm text-ink-muted">eBay seller account connected.</p>
-            <p className="text-sm text-ink-subtle">Last synced: {status.lastSyncedAt ?? 'never'}</p>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <StatTile label="Status" value="Connected" icon={Gavel} />
+              <StatTile label="Last synced" value={status.lastSyncedAt ?? 'Never'} icon={Clock} />
+            </div>
             <Button type="button" variant="secondary" disabled={syncing} onClick={() => void handleSync()}>
               {syncing ? 'Syncing…' : 'Sync now'}
             </Button>

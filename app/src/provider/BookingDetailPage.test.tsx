@@ -1,7 +1,8 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { MemoryRouter } from 'react-router'
-import { ProviderBookingsPage } from './ProviderBookingsPage'
+import { MemoryRouter, Route, Routes } from 'react-router'
+import { BookingDetailPage } from './BookingDetailPage'
 import { AuthContext } from '../hooks/auth-context'
 import { supabase } from '../lib/supabase'
 import type { Database } from '../types/database'
@@ -15,15 +16,13 @@ vi.mock('../lib/supabase', () => ({
 type StorageSpace = Database['public']['Tables']['storage_spaces']['Row']
 type Profile = Database['public']['Tables']['profiles']['Row']
 type BookingRequest = Database['public']['Tables']['booking_requests']['Row']
+type Warehouse = Database['public']['Tables']['warehouses']['Row']
 type QueryResult = { data: unknown; error: unknown }
 
 interface MockQueryBuilder {
   select: (...args: unknown[]) => MockQueryBuilder
-  order: (...args: unknown[]) => MockQueryBuilder
-  insert: (...args: unknown[]) => MockQueryBuilder
-  update: (...args: unknown[]) => MockQueryBuilder
-  delete: (...args: unknown[]) => MockQueryBuilder
   eq: (...args: unknown[]) => MockQueryBuilder
+  update: (...args: unknown[]) => MockQueryBuilder
   single: (...args: unknown[]) => MockQueryBuilder
   then: (resolve: (value: QueryResult) => void) => void
 }
@@ -31,11 +30,8 @@ interface MockQueryBuilder {
 function makeBuilder(result: QueryResult): MockQueryBuilder {
   const builder = {} as MockQueryBuilder
   builder.select = vi.fn(() => builder)
-  builder.order = vi.fn(() => builder)
-  builder.insert = vi.fn(() => builder)
-  builder.update = vi.fn(() => builder)
-  builder.delete = vi.fn(() => builder)
   builder.eq = vi.fn(() => builder)
+  builder.update = vi.fn(() => builder)
   builder.single = vi.fn(() => builder)
   builder.then = (resolve) => resolve(result)
   return builder
@@ -75,41 +71,74 @@ const space: StorageSpace = {
   created_at: '2026-01-01T00:00:00Z',
 }
 
+const warehouse: Warehouse = {
+  id: 'w1',
+  provider_id: 'provider-1',
+  name: 'Main Warehouse',
+  address_line1: '1 Dock Rd',
+  city: 'Columbus',
+  state: null,
+  postal_code: '43215',
+  country: 'US',
+  created_at: '2026-01-01T00:00:00Z',
+}
+
 function renderWithAuth() {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/provider/bookings/b1']}>
       <AuthContext.Provider
-      value={{
-        session: null,
-        loading: false,
-        profile: {
-          id: 'provider-1',
-          role: 'provider',
-          display_name: 'Provider One',
-          company_name: null,
-          created_at: '2026-01-01T00:00:00Z',
-        },
-      }}
-    >
-      <ProviderBookingsPage />
+        value={{
+          session: null,
+          loading: false,
+          profile: {
+            id: 'provider-1',
+            role: 'provider',
+            display_name: 'Provider One',
+            company_name: null,
+            created_at: '2026-01-01T00:00:00Z',
+          },
+        }}
+      >
+        <Routes>
+          <Route path="/provider/bookings/:bookingId" element={<BookingDetailPage />} />
+        </Routes>
       </AuthContext.Provider>
     </MemoryRouter>,
   )
 }
 
-describe('ProviderBookingsPage', () => {
-  it('lists incoming booking requests linking to their detail page', async () => {
+describe('BookingDetailPage', () => {
+  it('shows the full booking with approve/reject actions when pending', async () => {
     mockFrom(
-      { data: [booking], error: null },
-      { data: [brand], error: null },
-      { data: [space], error: null },
+      { data: booking, error: null },
+      { data: brand, error: null },
+      { data: space, error: null },
     )
+    mockFrom({ data: warehouse, error: null })
 
     renderWithAuth()
 
     expect(await screen.findByText('Widgets Co')).toBeInTheDocument()
-    expect(screen.getByText('Pallet Rack A')).toBeInTheDocument()
-    expect(screen.getByText('pending')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Widgets Co' })).toHaveAttribute('href', '/provider/bookings/b1')
+    expect(screen.getByText(/Pallet Rack A/)).toBeInTheDocument()
+    expect(screen.getByText(/Main Warehouse/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeInTheDocument()
+  })
+
+  it('approves a pending booking request', async () => {
+    mockFrom(
+      { data: booking, error: null },
+      { data: brand, error: null },
+      { data: space, error: null },
+    )
+    mockFrom({ data: warehouse, error: null })
+    mockFrom({ data: { ...booking, status: 'approved' }, error: null })
+
+    renderWithAuth()
+
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Approve' }))
+
+    expect(await screen.findByText('approved')).toBeInTheDocument()
   })
 })

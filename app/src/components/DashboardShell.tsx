@@ -184,7 +184,15 @@ function SidebarContent({
   )
 }
 
-export function DashboardShell({ title, children }: { title: string; children?: ReactNode }) {
+export function DashboardShell({
+  title,
+  action,
+  children,
+}: {
+  title: string
+  action?: ReactNode
+  children?: ReactNode
+}) {
   const { profile } = useAuth()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
@@ -221,7 +229,8 @@ export function DashboardShell({ title, children }: { title: string; children?: 
                 <span className="sr-only">Open menu</span>
               </button>
             </SheetTrigger>
-            <h1 className="text-xl font-semibold tracking-tight text-ink md:text-2xl">{title}</h1>
+            <h1 className="flex-1 text-xl font-semibold tracking-tight text-ink md:text-2xl">{title}</h1>
+            {action}
           </header>
           <main className="flex-1 p-4 md:p-6">{children ?? <EmptyState>Nothing built here yet.</EmptyState>}</main>
         </div>

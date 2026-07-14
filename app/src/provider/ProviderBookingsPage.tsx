@@ -1,15 +1,21 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { DashboardShell } from '../components/DashboardShell'
-import { Button } from '../components/ui/Button'
 import { ErrorText } from '../components/ui/ErrorText'
 import { EmptyState } from '../components/ui/EmptyState'
 import { StatusBadge } from '../components/ui/StatusBadge'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableRowLink } from '../components/ui/Table'
 import type { Database } from '../types/database'
 
 type StorageSpace = Database['public']['Tables']['storage_spaces']['Row']
 type Profile = Database['public']['Tables']['profiles']['Row']
 type BookingRequest = Database['public']['Tables']['booking_requests']['Row']
+
+function statusTone(status: BookingRequest['status']) {
+  if (status === 'approved') return 'success'
+  if (status === 'rejected') return 'error'
+  return 'neutral'
+}
 
 export function ProviderBookingsPage() {
   const [bookings, setBookings] = useState<BookingRequest[]>([])
@@ -17,7 +23,6 @@ export function ProviderBookingsPage() {
   const [spaces, setSpaces] = useState<StorageSpace[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [decidingId, setDecidingId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -48,81 +53,50 @@ export function ProviderBookingsPage() {
     }
   }, [])
 
-  async function handleDecision(id: string, status: 'approved' | 'rejected') {
-    setError(null)
-    setDecidingId(id)
+  function brandLabel(brandId: string) {
+    const brand = brands.find((candidate) => candidate.id === brandId)
+    return brand?.company_name ?? brand?.display_name ?? 'Unknown brand'
+  }
 
-    const { data, error: updateError } = await supabase
-      .from('booking_requests')
-      .update({ status })
-      .eq('id', id)
-      .select()
-      .single()
-
-    setDecidingId(null)
-
-    if (updateError) {
-      setError(updateError.message)
-      return
-    }
-
-    setBookings((current) => current.map((booking) => (booking.id === id ? data : booking)))
+  function spaceLabel(spaceId: string) {
+    return spaces.find((candidate) => candidate.id === spaceId)?.name ?? 'a storage space'
   }
 
   return (
     <DashboardShell title="Booking Requests">
-      <div className="mx-auto max-w-2xl">
-        {error && (
-          <div className="mb-4">
-            <ErrorText>{error}</ErrorText>
-          </div>
-        )}
-        {loading && <EmptyState>Loading booking requests…</EmptyState>}
-        {!loading && bookings.length === 0 && <EmptyState>No booking requests yet.</EmptyState>}
-
-        <ul className="space-y-3">
-          {bookings.map((booking) => {
-            const brand = brands.find((b) => b.id === booking.brand_id)
-            const space = spaces.find((s) => s.id === booking.storage_space_id)
-
-            return (
-              <li key={booking.id} className="rounded-lg border border-hairline bg-surface-1 p-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="font-medium text-ink">
-                      {brand?.company_name ?? brand?.display_name ?? 'Unknown brand'}
-                    </p>
-                    <p className="text-sm text-ink-subtle">requesting {space?.name ?? 'a storage space'}</p>
-                  </div>
-                  <StatusBadge>{booking.status}</StatusBadge>
-                </div>
-
-                {booking.status === 'pending' && (
-                  <div className="mt-3 flex gap-2">
-                    <Button
-                      type="button"
-                      disabled={decidingId === booking.id}
-                      onClick={() => void handleDecision(booking.id, 'approved')}
-                      className="text-xs"
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="danger"
-                      disabled={decidingId === booking.id}
-                      onClick={() => void handleDecision(booking.id, 'rejected')}
-                      className="text-xs"
-                    >
-                      Reject
-                    </Button>
-                  </div>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      </div>
+      {error && (
+        <div className="mb-4">
+          <ErrorText>{error}</ErrorText>
+        </div>
+      )}
+      {loading && <EmptyState>Loading booking requests…</EmptyState>}
+      {!loading && bookings.length === 0 && <EmptyState>No booking requests yet.</EmptyState>}
+      {!loading && bookings.length > 0 && (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Brand</TableHead>
+              <TableHead>Storage space</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Date</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {bookings.map((booking) => (
+              <TableRow key={booking.id} to={`/provider/bookings/${booking.id}`}>
+                <TableCell>
+                  <TableRowLink to={`/provider/bookings/${booking.id}`}>{brandLabel(booking.brand_id)}</TableRowLink>
+                </TableCell>
+                <TableCell>{spaceLabel(booking.storage_space_id)}</TableCell>
+                <TableCell>
+                  <StatusBadge tone={statusTone(booking.status)}>{booking.status}</StatusBadge>
+                </TableCell>
+                <TableCell>{new Date(booking.created_at).toLocaleDateString()}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
     </DashboardShell>
   )
 }

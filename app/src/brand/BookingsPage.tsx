@@ -6,6 +6,7 @@ import { Button } from '../components/ui/Button'
 import { ErrorText } from '../components/ui/ErrorText'
 import { EmptyState } from '../components/ui/EmptyState'
 import { StatusBadge } from '../components/ui/StatusBadge'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/Table'
 import type { Database } from '../types/database'
 
 type Warehouse = Database['public']['Tables']['warehouses']['Row']
@@ -82,61 +83,70 @@ export function BookingsPage() {
 
   return (
     <DashboardShell title="Find a Provider">
-      <div className="mx-auto max-w-2xl">
-        {error && (
-          <div className="mb-4">
-            <ErrorText>{error}</ErrorText>
-          </div>
-        )}
-        {loading && <EmptyState>Loading providers…</EmptyState>}
-        {!loading && warehouses.length === 0 && <EmptyState>No providers available yet.</EmptyState>}
+      {error && (
+        <div className="mb-4">
+          <ErrorText>{error}</ErrorText>
+        </div>
+      )}
+      {loading && <EmptyState>Loading providers…</EmptyState>}
+      {!loading && warehouses.length === 0 && <EmptyState>No providers available yet.</EmptyState>}
 
-        <ul className="space-y-4">
-          {warehouses.map((warehouse) => {
-            const provider = providers.find((p) => p.id === warehouse.provider_id)
-            const warehouseSpaces = spaces.filter((space) => space.warehouse_id === warehouse.id)
+      <div className="space-y-6">
+        {warehouses.map((warehouse) => {
+          const provider = providers.find((p) => p.id === warehouse.provider_id)
+          const warehouseSpaces = spaces.filter((space) => space.warehouse_id === warehouse.id)
 
-            return (
-              <li key={warehouse.id} className="rounded-lg border border-hairline bg-surface-1 p-4">
-                <p className="font-medium text-ink">
-                  {provider?.company_name ?? provider?.display_name ?? 'Unknown provider'}
-                </p>
-                <p className="text-sm text-ink-subtle">
-                  {warehouse.name} — {warehouse.city}, {warehouse.country}
-                </p>
+          return (
+            <div key={warehouse.id}>
+              <p className="font-medium text-ink">
+                {provider?.company_name ?? provider?.display_name ?? 'Unknown provider'}
+              </p>
+              <p className="text-sm text-ink-subtle">
+                {warehouse.name} — {warehouse.city}, {warehouse.country}
+              </p>
 
-                <ul className="mt-3 space-y-2">
-                  {warehouseSpaces.map((space) => {
-                    const existingBooking = bookingForSpace(space.id)
-                    return (
-                      <li
-                        key={space.id}
-                        className="flex items-center justify-between rounded-md border border-hairline-tertiary px-3 py-2"
-                      >
-                        <span className="text-sm text-ink-muted">
-                          {space.name} — {space.capacity_units} {space.unit_type}
-                        </span>
-                        {existingBooking ? (
-                          <StatusBadge>{existingBooking.status}</StatusBadge>
-                        ) : (
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            disabled={requestingSpaceId === space.id}
-                            onClick={() => void handleRequestBooking(space.id)}
-                            className="text-xs"
-                          >
-                            {requestingSpaceId === space.id ? 'Requesting…' : 'Request booking'}
-                          </Button>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
-              </li>
-            )
-          })}
-        </ul>
+              <div className="mt-2">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Storage space</TableHead>
+                      <TableHead>Capacity</TableHead>
+                      <TableHead className="text-right">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {warehouseSpaces.map((space) => {
+                      const existingBooking = bookingForSpace(space.id)
+                      return (
+                        <TableRow key={space.id}>
+                          <TableCell>{space.name}</TableCell>
+                          <TableCell>
+                            {space.capacity_units} {space.unit_type}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {existingBooking ? (
+                              <StatusBadge>{existingBooking.status}</StatusBadge>
+                            ) : (
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                disabled={requestingSpaceId === space.id}
+                                onClick={() => void handleRequestBooking(space.id)}
+                              >
+                                {requestingSpaceId === space.id ? 'Requesting…' : 'Request booking'}
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )
+        })}
       </div>
     </DashboardShell>
   )

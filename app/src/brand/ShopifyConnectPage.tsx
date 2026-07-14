@@ -3,10 +3,12 @@ import { useAuth } from '../hooks/useAuth'
 import { DashboardShell } from '../components/DashboardShell'
 import { getShopifyStatus, requestShopifyInstallUrl, triggerShopifySync } from '../lib/worker'
 import type { ShopifyStatus } from '../lib/worker'
+import { ShoppingBag, Clock } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { TextField } from '../components/ui/TextField'
 import { ErrorText } from '../components/ui/ErrorText'
 import { EmptyState } from '../components/ui/EmptyState'
+import { StatTile } from '../components/ui/StatTile'
 
 export function ShopifyConnectPage() {
   const { session } = useAuth()
@@ -80,11 +82,11 @@ export function ShopifyConnectPage() {
         {loading && <EmptyState>Loading connection status…</EmptyState>}
 
         {!loading && status?.connected && (
-          <div className="space-y-3">
-            <p className="text-sm text-ink-muted">
-              Connected to <span className="font-medium text-ink">{status.shopDomain}</span>
-            </p>
-            <p className="text-sm text-ink-subtle">Last synced: {status.lastSyncedAt ?? 'never'}</p>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <StatTile label="Shop domain" value={status.shopDomain ?? '—'} icon={ShoppingBag} />
+              <StatTile label="Last synced" value={status.lastSyncedAt ?? 'Never'} icon={Clock} />
+            </div>
             <Button type="button" variant="secondary" disabled={syncing} onClick={() => void handleSync()}>
               {syncing ? 'Syncing…' : 'Sync now'}
             </Button>
