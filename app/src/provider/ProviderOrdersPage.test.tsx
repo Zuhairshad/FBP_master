@@ -44,6 +44,7 @@ function renderWithAuth() {
             role: 'provider',
             display_name: 'Provider One',
             company_name: null,
+            is_active: true,
             created_at: '2026-01-01T00:00:00Z',
           },
         }}
@@ -65,7 +66,10 @@ describe('ProviderOrdersPage', () => {
         raw_data: { id: 1001 },
         resolved_master_sku: 'SKU-001',
         status: 'resolved',
+        fulfillment_status: 'pending',
+        tracking_number: null,
         created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
       },
     ]
     const brands: Profile[] = [
@@ -74,6 +78,7 @@ describe('ProviderOrdersPage', () => {
         role: 'brand',
         display_name: 'Brand One',
         company_name: 'Brand One Co',
+        is_active: true,
         created_at: '2026-01-01T00:00:00Z',
       },
     ]

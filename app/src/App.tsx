@@ -35,6 +35,11 @@ import { WalmartOrdersPage } from './brand/WalmartOrdersPage'
 import { WalmartOrderDetailPage } from './brand/WalmartOrderDetailPage'
 import { ProviderOrdersPage } from './provider/ProviderOrdersPage'
 import { ProviderOrderDetailPage } from './provider/ProviderOrderDetailPage'
+import { UsersPage } from './admin/UsersPage'
+import { AdminBookingsPage } from './admin/BookingsPage'
+import { OrdersPage as AdminOrdersPage } from './admin/OrdersPage'
+import { OrderDetailPage as AdminOrderDetailPage } from './admin/OrderDetailPage'
+import { SyncLogsPage } from './admin/SyncLogsPage'
 
 function App() {
   return (
@@ -84,6 +89,11 @@ function App() {
 
             <Route element={<RequireRole role="admin" />}>
               <Route path="/admin" element={<AdminDashboardPage />} />
+              <Route path="/admin/users" element={<UsersPage />} />
+              <Route path="/admin/bookings" element={<AdminBookingsPage />} />
+              <Route path="/admin/orders" element={<AdminOrdersPage />} />
+              <Route path="/admin/orders/:orderId" element={<AdminOrderDetailPage />} />
+              <Route path="/admin/sync-logs" element={<SyncLogsPage />} />
             </Route>
           </Route>
         </Routes>
